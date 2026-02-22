@@ -1,0 +1,17 @@
+[
+  {
+    "priority": "MEDIUM",
+    "title": "Add global loading state",
+    "description": "Show loading spinner during Git operations to prevent double-clicks"
+  },
+  {
+    "priority": "MEDIUM",
+    "title": "Add operation history panel",
+    "description": "Show recent operations in a panel for user reference"
+  },
+  {
+    "priority": "LOW",
+    "title": "Add Pull/Push functionality",
+    "description": "Support remote repository operations"
+  }
+]

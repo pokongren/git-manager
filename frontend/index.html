@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git 管理工具 - 备份还原与分支管理</title>
+    <meta name="description" content="可视化的 Git 管理工具，支持备份还原、分支管理、提交历史查看等功能">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="app-header" id="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="4" />
+                    <line x1="1.05" y1="12" x2="7" y2="12" />
+                    <line x1="17.01" y1="12" x2="22.96" y2="12" />
+                </svg>
+                <span>Git 管理工具</span>
+            </div>
+        </div>
+        <div class="header-center">
+            <div class="repo-indicator" id="repo-indicator">
+                <span class="repo-dot"></span>
+                <span id="repo-path-display">未连接仓库</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="branch-badge" id="current-branch-badge" style="display:none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                <span id="current-branch-name"></span>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <!-- 左侧导航 -->
+        <nav class="sidebar" id="sidebar">
+            <div class="nav-group">
+                <div class="nav-label">仓库</div>
+                <button class="nav-item active" data-panel="connect" id="nav-connect">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                    <span>连接仓库</span>
+                </button>
+                <button class="nav-item" data-panel="status" id="nav-status">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>仓库状态</span>
+                </button>
+            </div>
+            <div class="nav-group">
+                <div class="nav-label">操作</div>
+                <button class="nav-item" data-panel="branches" id="nav-branches">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="6" y1="3" x2="6" y2="15" />
+                        <circle cx="18" cy="6" r="3" />
+                        <circle cx="6" cy="18" r="3" />
+                        <path d="M18 9a9 9 0 0 1-9 9" />
+                    </svg>
+                    <span>分支管理</span>
+                </button>
+                <button class="nav-item" data-panel="backup" id="nav-backup">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                    </svg>
+                    <span>备份还原</span>
+                </button>
+                <button class="nav-item" data-panel="history" id="nav-history">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    <span>提交历史</span>
+                </button>
+                <button class="nav-item" data-panel="remote" id="nav-remote">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <span>远程同步</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- 主内容区域 -->
+        <div class="content-area" id="content-area">
+
+            <!-- 连接仓库面板 -->
+            <div class="panel active" id="panel-connect">
+                <div class="panel-header">
+                    <h1>连接 Git 仓库</h1>
+                    <p class="panel-desc">输入本地 Git 仓库路径以开始管理</p>
+                </div>
+                <div class="panel-body">
+                    <div class="connect-card">
+                        <div class="input-group">
+                            <label for="repo-path-input">仓库路径</label>
+                            <div class="input-row">
+                                <input type="text" id="repo-path-input" placeholder="例如：D:\projects\my-repo"
+                                    spellcheck="false">
+                                <button class="btn btn-outline" id="btn-browse" onclick="browseFolderDialog()"
+                                    title="选择文件夹">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path
+                                            d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                                    </svg>
+                                    浏览
+                                </button>
+                                <button class="btn btn-primary" id="btn-connect" onclick="connectRepo()">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                    </svg>
+                                    连接
+                                </button>
+                            </div>
+                        </div>
+                        <div class="info-card" id="repo-info-card" style="display:none;">
+                            <div class="info-row"><span class="info-label">仓库根目录</span><span class="info-value"
+                                    id="info-root"></span></div>
+                            <div class="info-row"><span class="info-label">当前分支</span><span class="info-value"
+                                    id="info-branch"></span></div>
+                            <div class="info-row"><span class="info-label">远程仓库</span><span class="info-value"
+                                    id="info-remote"></span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 仓库状态面板 -->
+            <div class="panel" id="panel-status">
+                <div class="panel-header">
+                    <h1>仓库状态</h1>
+                    <div class="panel-actions">
+                        <button class="btn btn-outline" onclick="loadStatus()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- 操作说明提示 -->
+                    <div class="help-tip" id="status-help-tip">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="16" x2="12" y2="12" />
+                            <line x1="12" y1="8" x2="12.01" y2="8" />
+                        </svg>
+                        <span><b>操作说明：</b>勾选要保存的文件 → 点击"暂存选中" → 输入提交信息 → 点击"提交"。未勾选的文件不会被保存。</span>
+                    </div>
+
+                    <div id="status-clean-msg" class="empty-state" style="display:none;">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)"
+                            stroke-width="1.5">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <polyline points="22 4 12 14.01 9 11.01" />
+                        </svg>
+                        <h3>工作区干净</h3>
+                        <p>没有需要提交的更改，所有文件已是最新状态</p>
+                    </div>
+                    <div id="status-files-container" style="display:none;">
+                        <!-- 文件统计 -->
+                        <div class="status-stats" id="status-stats"></div>
+
+                        <!-- 工具栏 -->
+                        <div class="status-toolbar">
+                            <div class="toolbar-left">
+                                <label class="checkbox-label" id="select-all-label">
+                                    <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll()">
+                                    <span>全选</span>
+                                </label>
+                                <button class="btn btn-sm btn-outline" onclick="stageSelected()">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="9 11 12 14 22 4" />
+                                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                                    </svg>
+                                    暂存选中 (<span id="selected-count">0</span>)
+                                </button>
+                                <button class="btn btn-sm btn-outline" onclick="stageAll()">全部暂存</button>
+                            </div>
+                            <div class="commit-inline">
+                                <select id="commit-type-select" onchange="applyCommitType()" title="选择提交类型">
+                                    <option value="">类型</option>
+                                    <option value="feat: ">✨ 新功能</option>
+                                    <option value="fix: ">🐛 修复</option>
+                                    <option value="docs: ">📝 文档</option>
+                                    <option value="style: ">💄 样式</option>
+                                    <option value="refactor: ">♻️ 重构</option>
+                                    <option value="perf: ">⚡ 性能</option>
+                                    <option value="chore: ">🔧 杂项</option>
+                                    <option value="data: ">📊 数据更新</option>
+                                </select>
+                                <input type="text" id="commit-msg-input" placeholder="输入提交信息...">
+                                <button class="btn btn-sm btn-primary" onclick="commitChanges()">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    提交
+                                </button>
+                            </div>
+                        </div>
+                        <div class="file-list" id="status-file-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 分支管理面板 -->
+            <div class="panel" id="panel-branches">
+                <div class="panel-header">
+                    <h1>分支管理</h1>
+                    <div class="panel-actions">
+                        <button class="btn btn-primary" onclick="showCreateBranch()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            新建分支
+                        </button>
+                        <button class="btn btn-outline" onclick="loadBranchTree()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- 新建分支表单 -->
+                    <div class="create-form" id="create-branch-form" style="display:none;">
+                        <div class="form-card">
+                            <h3>创建新分支</h3>
+                            <div class="input-group">
+                                <label for="new-branch-name">分支名称</label>
+                                <input type="text" id="new-branch-name" placeholder="feature/my-feature">
+                            </div>
+                            <div class="input-group">
+                                <label for="new-branch-source">基于分支（可选）</label>
+                                <select id="new-branch-source">
+                                    <option value="">默认基于当前分支</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-outline" onclick="hideCreateBranch()">取消</button>
+                                <button class="btn btn-primary" onclick="createBranch()">创建</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 分支关系树 -->
+                    <div id="branch-tree"></div>
+                </div>
+            </div>
+
+            <!-- 备份还原面板 -->
+            <div class="panel" id="panel-backup">
+                <div class="panel-header">
+                    <h1>备份与还原</h1>
+                    <div class="panel-actions">
+                        <button class="btn btn-primary" onclick="showCreateBackup()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            创建备份
+                        </button>
+                        <button class="btn btn-outline" onclick="loadTags()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- NOTE: 当前分支上下文提示和安全警告（由 JS 动态填充） -->
+                    <div id="backup-context-area"></div>
+                    <!-- 创建备份表单 -->
+                    <div class="create-form" id="create-backup-form" style="display:none;">
+                        <div class="form-card">
+                            <h3>创建备份点</h3>
+                            <div class="input-group">
+                                <label for="backup-tag-name">备份标签名</label>
+                                <input type="text" id="backup-tag-name" placeholder="backup-v1.0">
+                            </div>
+                            <div class="input-group">
+                                <label for="backup-message">备份说明（可选）</label>
+                                <input type="text" id="backup-message" placeholder="描述此备份点...">
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-outline" onclick="hideCreateBackup()">取消</button>
+                                <button class="btn btn-primary" onclick="createBackup()">创建</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="backup-empty" class="empty-state" style="display:none;">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)"
+                            stroke-width="1.5">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                        </svg>
+                        <h3>暂无备份点</h3>
+                        <p>点击"创建备份"来保存当前状态</p>
+                    </div>
+                    <div class="tag-list" id="tag-list"></div>
+                    <!-- Stash 区 -->
+                    <div class="section-divider">
+                        <span>Stash 暂存区</span>
+                    </div>
+                    <div class="stash-toolbar">
+                        <button class="btn btn-sm btn-outline" onclick="stashSave()">暂存当前更改</button>
+                        <button class="btn btn-sm btn-outline" onclick="stashPop()">恢复暂存</button>
+                        <button class="btn btn-sm btn-outline" onclick="loadStashes()">刷新</button>
+                    </div>
+                    <div class="stash-list" id="stash-list"></div>
+                </div>
+            </div>
+
+            <!-- 提交历史面板 -->
+            <div class="panel" id="panel-history">
+                <div class="panel-header">
+                    <h1>提交历史</h1>
+                    <div class="panel-actions">
+                        <button class="btn btn-outline" onclick="loadHistory()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="commit-list" id="commit-list"></div>
+                </div>
+            </div>
+
+            <!-- 远程同步面板 -->
+            <div class="panel" id="panel-remote">
+                <div class="panel-header">
+                    <h1>远程同步 (GitHub)</h1>
+                    <div class="panel-actions">
+                        <button class="btn btn-primary" onclick="showAddRemote()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            添加远程仓库
+                        </button>
+                        <button class="btn btn-outline" onclick="loadRemoteInfo()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- 添加/修改远程仓库表单 -->
+                    <div class="create-form" id="create-remote-form" style="display:none;">
+                        <div class="form-card">
+                            <h3>设置远程仓库</h3>
+                            <div class="input-group">
+                                <label for="remote-name-input">远程别名 (通常为 origin)</label>
+                                <input type="text" id="remote-name-input" value="origin" placeholder="origin">
+                            </div>
+                            <div class="input-group">
+                                <label for="remote-url-input">仓库 URL (HTTPS 或 SSH)</label>
+                                <input type="text" id="remote-url-input" placeholder="https://github.com/user/repo.git">
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-outline" onclick="hideAddRemote()">取消</button>
+                                <button class="btn btn-primary" onclick="addRemote()">保存</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="info-card" id="remote-list-card" style="margin-top:0; margin-bottom: 20px;">
+                        <h3 style="margin-bottom: 12px; font-size: 1rem; color: var(--color-text);">当前关联的远程仓库</h3>
+                        <div id="remote-list-container">
+                            <div class="empty-state" style="padding: 20px;">
+                                <p>暂无数据或获取失败</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-divider">
+                        <span>代码推送</span>
+                    </div>
+
+                    <div class="form-card" style="margin-top: 16px;">
+                        <div class="input-group">
+                            <label for="push-remote-select">推送到远程别名</label>
+                            <input type="text" id="push-remote-select" value="origin" placeholder="例如：origin">
+                        </div>
+                        <div class="input-group">
+                            <label for="push-branch-select">推送到远程分支名</label>
+                            <input type="text" id="push-branch-select" placeholder="例如：main 或 master">
+                        </div>
+                        <div class="form-actions" style="margin-top: 16px;">
+                            <button class="btn btn-primary" id="btn-push-remote" onclick="pushToRemote()"
+                                style="width:100%; justify-content:center;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="17 8 12 3 7 8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                                开始推送 (Push)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 通知容器 -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- 确认弹窗 -->
+    <div class="modal-overlay" id="modal-overlay" style="display:none;">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">确认操作</h3>
+            </div>
+            <div class="modal-body">
+                <p id="modal-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal()">取消</button>
+                <button class="btn btn-danger" id="modal-confirm-btn">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

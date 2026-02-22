@@ -1,0 +1,4 @@
+{"timestamp": "2026-02-18T00:20:35.289903", "agent_name": "LoggerAgent", "log_type": "operation", "title": "系统初始化", "detail": "记录Agent启动", "data": {}, "severity": "info"}
+{"timestamp": "2026-02-18T00:20:35.290445", "agent_name": "Coordinator", "log_type": "decision", "title": "开始完整工作流", "detail": "测试仓库: F:\\Program Files\\Git\\git-manager", "data": {}, "severity": "info"}
+{"timestamp": "2026-02-18T00:20:35.291442", "agent_name": "Coordinator", "log_type": "decision", "title": "Phase 1", "detail": "WorkerAgent开始执行Git操作序列", "data": {}, "severity": "info"}
+{"timestamp": "2026-02-18T00:20:35.298063", "agent_name": "WorkerAgent", "log_type": "operation", "title": "workflow", "detail": "开始执行完整工作流程", "data": {}, "severity": "info"}

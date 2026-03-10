@@ -170,13 +170,14 @@ async function connectRepo() {
     }
 
     try {
-        await apiRequest('/api/repo/open', {
+        const data = await apiRequest('/api/repo/open', {
             method: 'POST',
             body: JSON.stringify({ path }),
         });
-
-        showToast('仓库连接成功', 'success');
-        await refreshRepoInfo();
+        showToast(data.message, 'success');
+        // NOTE: 连接成功后保存到最近仓库列表
+        saveRecentRepo(path);
+        refreshRepoInfo();
     } catch (error) {
         showToast(error.message, 'error');
     }
@@ -251,6 +252,14 @@ async function loadStatus() {
         const filesContainer = document.getElementById('status-files-container');
         const fileList = document.getElementById('status-file-list');
         const helpTip = document.getElementById('status-help-tip');
+        const conflictWarning = document.getElementById('status-conflict-warning');
+
+        // Check if merging
+        if (data.is_merging) {
+            if (conflictWarning) conflictWarning.style.display = 'flex';
+        } else {
+            if (conflictWarning) conflictWarning.style.display = 'none';
+        }
 
         if (data.clean) {
             cleanMsg.style.display = 'flex';
@@ -314,6 +323,13 @@ function renderFileList() {
                        onclick="event.stopPropagation(); toggleFileSelect(${i})">
                 <span class="file-status ${statusClass}">${file.statusText}</span>
                 <span class="file-path">${escapeHtml(file.path)}</span>
+                <button class="btn btn-sm btn-ghost file-diff-btn" onclick="event.stopPropagation(); showFileDiff('${escapeAttr(file.path)}')"
+                    title="查看 Diff">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                </button>
             </div>
         `;
     }).join('');
@@ -447,9 +463,29 @@ async function commitChanges() {
         // NOTE: 提交成功后重置类型选择器
         document.getElementById('commit-type-select').selectedIndex = 0;
         loadStatus();
+        refreshRepoInfo(); // Also refresh info to update ahead/behind if needed
     } catch (error) {
         showToast(error.message, 'error');
     }
+}
+
+/**
+ * 中止并放弃当前的合并
+ */
+async function abortMerge() {
+    showConfirmModal(
+        '中止合并',
+        '确定要放弃当前的合并操作吗？未被 Git 保存的本地更改将会丢失。',
+        async () => {
+            try {
+                await apiRequest('/api/merge/abort', { method: 'POST' });
+                showToast('合并已中止', 'success');
+                loadStatus();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+    );
 }
 
 /**
@@ -514,7 +550,7 @@ async function loadBranchTree() {
         const isMainCurrent = data.current_branch === data.main_branch;
         html += `
             <div class="tree-node tree-head-node">
-                <div class="tree-head">
+                <div class="tree-head ${isMainCurrent ? 'is-current' : ''}">
                     <div class="tree-head-main">
                         <span class="tree-badge">${escapeHtml(data.main_branch)}</span>
                         ${isMainCurrent ? '<span class="tree-status">● 当前</span>' : ''}
@@ -624,19 +660,36 @@ function renderBranchNode(branch, mainBranch) {
         <div class="tree-node is-branch">
             <div class="tree-branch" data-color="${branch.colorIdx}">
                 <div class="branch-card ${isCurrent ? 'is-current' : ''}">
-                    <span class="b-name">
-                        ${escapeHtml(branch.name)}
-                        ${isCurrent ? ' <span style="color:var(--color-success);">● 当前</span>' : ''}
-                    </span>
-                    <span class="b-meta">
-                        <span>${branch.hash}</span>
-                        ${branch.message ? `<span>— ${escapeHtml(branch.message)}</span>` : ''}
-                    </span>
+                    <div class="b-header">
+                        <span class="b-name" ondblclick="inlineRenameBranch(this, '${escapeAttr(branch.name)}')" title="双击重命名">
+                            ${escapeHtml(branch.name)}
+                            ${isCurrent ? ' <span style="color:var(--color-success);">● 当前</span>' : ''}
+                        </span>
+                        <span class="b-meta b-meta-editable" ondblclick="inlineEditDescription(this, '${escapeAttr(branch.name)}', '${escapeAttr(branch.description || '')}')" title="双击编辑备注">
+                            <span>${branch.hash}</span>
+                            ${branch.message ? `<span>— ${escapeHtml(branch.message)}</span>` : ''}
+                        </span>
+                    </div>
+                    ${branch.description ? `
+                        <div class="b-description" ondblclick="inlineEditDescription(this, '${escapeAttr(branch.name)}', '${escapeAttr(branch.description)}')" title="双击编辑备注">
+                            <span class="b-desc-icon">📝</span>
+                            <span>${escapeHtml(branch.description)}</span>
+                        </div>
+                    ` : ''}
+                    ${branch.diff_summary ? `
+                        <div class="b-diff-summary">
+                            <span class="b-desc-icon">📊</span>
+                            <span>${escapeHtml(branch.diff_summary)}</span>
+                        </div>
+                    ` : ''}
                     <div class="b-meta">
                         ${aheadText ? `<span class="b-stat ahead">↑ ${aheadText}</span>` : ''}
                         ${behindText ? `<span class="b-stat behind">↓ ${behindText}</span>` : ''}
                     </div>
                     <div class="b-actions">
+                        <button class="btn btn-sm btn-ghost" onclick="showEditBranch('${escapeAttr(branch.name)}', '${escapeAttr(branch.description || '')}')" title="编辑分支">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
                         ${!isCurrent ? `
                             <button class="btn btn-sm btn-outline" onclick="switchBranch('${escapeAttr(branch.name)}')">切换</button>
                             <button class="btn btn-sm btn-outline" onclick="mergeBranch('${escapeAttr(branch.name)}')">合并到 ${escapeHtml(mainBranch)}</button>
@@ -790,6 +843,216 @@ function confirmDeleteBranch(name) {
             }
         }
     );
+}
+
+/**
+ * 显示编辑分支弹窗（重命名 + 修改备注）
+ * @param {string} name - 当前分支名
+ * @param {string} description - 当前备注
+ */
+function showEditBranch(name, description) {
+    const overlay = document.getElementById('modal-overlay');
+    const modal = document.getElementById('modal');
+
+    document.getElementById('modal-title').textContent = '✏️ 编辑分支';
+    document.getElementById('modal-message').innerHTML = `
+        <div class="edit-branch-form">
+            <div class="input-group">
+                <label>分支名称</label>
+                <input type="text" id="edit-branch-name" value="${escapeAttr(name)}" spellcheck="false">
+            </div>
+            <div class="input-group">
+                <label>分支备注 <span style="color:var(--color-muted);font-weight:400;">（描述这个分支的用途）</span></label>
+                <input type="text" id="edit-branch-desc" value="${escapeAttr(description)}" placeholder="例如：新增拓扑分支功能" spellcheck="false">
+            </div>
+        </div>
+    `;
+    overlay.style.display = 'flex';
+
+    const confirmBtn = document.getElementById('modal-confirm-btn');
+    const newBtn = confirmBtn.cloneNode(true);
+    newBtn.textContent = '保存';
+    newBtn.className = 'btn btn-primary';
+    confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+
+    // NOTE: 存储原始名称用于判断是否需要重命名
+    newBtn.dataset.originalName = name;
+    newBtn.addEventListener('click', async () => {
+        await saveEditBranch(name);
+    });
+}
+
+/**
+ * 保存编辑分支的修改（重命名和/或备注）
+ * NOTE: 先处理重命名，再保存备注，最后刷新分支树
+ * @param {string} originalName - 原始分支名
+ */
+async function saveEditBranch(originalName) {
+    const newName = document.getElementById('edit-branch-name').value.trim();
+    const newDesc = document.getElementById('edit-branch-desc').value.trim();
+
+    if (!newName) {
+        showToast('分支名称不能为空', 'error');
+        return;
+    }
+
+    closeModal();
+
+    try {
+        let currentName = originalName;
+
+        // NOTE: 如果名称变了，先执行重命名
+        if (newName !== originalName) {
+            await apiRequest('/api/branches/rename', {
+                method: 'POST',
+                body: JSON.stringify({ old_name: originalName, new_name: newName }),
+            });
+            showToast(`分支已重命名: '${originalName}' → '${newName}'`, 'success');
+            currentName = newName;
+        }
+
+        // NOTE: 保存备注
+        await apiRequest('/api/branches/description', {
+            method: 'POST',
+            body: JSON.stringify({ name: currentName, description: newDesc }),
+        });
+        if (newName === originalName) {
+            showToast('分支备注已更新', 'success');
+        }
+
+        loadBranchTree();
+        refreshRepoInfo();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+/**
+ * 双击分支名称，原地变成可编辑输入框
+ * NOTE: 回车或失焦保存，ESC 取消
+ * @param {HTMLElement} el - 被双击的 b-name 元素
+ * @param {string} currentName - 当前分支名
+ */
+function inlineRenameBranch(el, currentName) {
+    // NOTE: 防止重复触发
+    if (el.querySelector('input')) return;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.className = 'inline-rename-input';
+    input.spellcheck = false;
+
+    // 清空元素内容，替换为输入框
+    el.textContent = '';
+    el.appendChild(input);
+    input.focus();
+    input.select();
+
+    let saved = false;
+
+    /**
+     * 执行重命名保存
+     */
+    async function doSave() {
+        if (saved) return;
+        saved = true;
+        const newName = input.value.trim();
+
+        if (!newName || newName === currentName) {
+            // NOTE: 没有变化，直接恢复原始显示
+            loadBranchTree();
+            return;
+        }
+
+        try {
+            await apiRequest('/api/branches/rename', {
+                method: 'POST',
+                body: JSON.stringify({ old_name: currentName, new_name: newName }),
+            });
+            showToast(`分支已重命名: '${currentName}' → '${newName}'`, 'success');
+            loadBranchTree();
+            refreshRepoInfo();
+        } catch (error) {
+            showToast(error.message, 'error');
+            loadBranchTree();
+        }
+    }
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+        } else if (e.key === 'Escape') {
+            saved = true;
+            loadBranchTree();
+        }
+    });
+
+    input.addEventListener('blur', doSave);
+}
+
+/**
+ * 双击编辑分支备注（行内编辑）
+ * NOTE: 原地变成输入框，回车/失焦保存，ESC 取消
+ * @param {HTMLElement} el - 被双击的元素
+ * @param {string} branchName - 分支名
+ * @param {string} currentDesc - 当前备注
+ */
+function inlineEditDescription(el, branchName, currentDesc) {
+    // NOTE: 防止重复触发
+    if (el.querySelector('input')) return;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentDesc;
+    input.className = 'inline-rename-input';
+    input.style.width = '100%';
+    input.placeholder = '输入分支备注，如：新增拓扑分支功能';
+    input.spellcheck = false;
+
+    el.innerHTML = '📝 ';
+    el.appendChild(input);
+    input.focus();
+    input.select();
+
+    let saved = false;
+
+    async function doSave() {
+        if (saved) return;
+        saved = true;
+        const newDesc = input.value.trim();
+
+        // NOTE: 没变化则跳过
+        if (newDesc === currentDesc) {
+            loadBranchTree();
+            return;
+        }
+
+        try {
+            await apiRequest('/api/branches/description', {
+                method: 'POST',
+                body: JSON.stringify({ name: branchName, description: newDesc }),
+            });
+            showToast(newDesc ? '分支备注已更新' : '分支备注已清除', 'success');
+            loadBranchTree();
+        } catch (error) {
+            showToast(error.message, 'error');
+            loadBranchTree();
+        }
+    }
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+        } else if (e.key === 'Escape') {
+            saved = true;
+            loadBranchTree();
+        }
+    });
+
+    input.addEventListener('blur', doSave);
 }
 
 // ==================== 备份与还原 ====================
@@ -1161,6 +1424,9 @@ async function loadHistory() {
             return;
         }
 
+        // NOTE: 缓存提交数据供搜索过滤使用
+        window._commitCache = data.commits;
+
         list.innerHTML = data.commits.map((commit, i) => {
             // NOTE: 解析 refs 字符串为带样式的标签
             let refsHtml = '';
@@ -1175,11 +1441,17 @@ async function loadHistory() {
             }
 
             return `
-                <div class="commit-item" style="animation-delay: ${i * 20}ms">
+                <div class="commit-item" style="animation-delay: ${i * 20}ms" onclick="showCommitDiff('${escapeAttr(commit.hash)}')">
                     <div class="commit-body">
                         <div class="commit-message">${escapeHtml(commit.message)}</div>
                         <div class="commit-meta">
-                            <span class="commit-hash">${commit.short_hash}</span>
+                            <span class="commit-hash" onclick="event.stopPropagation(); copyHash('${escapeAttr(commit.hash)}', this)" title="点击复制完整哈希">
+                                ${commit.short_hash}
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:3px;opacity:0.5">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                </svg>
+                            </span>
                             <span>${escapeHtml(commit.author)}</span>
                             <span>${formatDate(commit.date)}</span>
                             ${refsHtml}
@@ -1188,9 +1460,58 @@ async function loadHistory() {
                 </div>
             `;
         }).join('');
+
+        // NOTE: 重新应用当前的搜索过滤条件
+        filterHistory();
     } catch (error) {
         showToast(error.message, 'error');
     }
+}
+
+/**
+ * 复制提交哈希到剪贴板
+ * @param {string} hash - 完整哈希
+ * @param {HTMLElement} el - 触发元素
+ */
+async function copyHash(hash, el) {
+    try {
+        await navigator.clipboard.writeText(hash);
+        // NOTE: 短暂变色反馈复制成功
+        el.classList.add('copied');
+        showToast('已复制哈希: ' + hash.substring(0, 7) + '...', 'success');
+        setTimeout(() => el.classList.remove('copied'), 1500);
+    } catch {
+        showToast('复制失败，请手动复制', 'error');
+    }
+}
+
+/**
+ * 搜索过滤提交历史
+ * NOTE: 纯前端实现，匹配 message、author、short_hash
+ */
+let _filterTimeout = null;
+function filterHistory() {
+    clearTimeout(_filterTimeout);
+    _filterTimeout = setTimeout(() => {
+        const query = document.getElementById('history-search-input').value.trim().toLowerCase();
+        const items = document.querySelectorAll('#commit-list .commit-item');
+        const commits = window._commitCache || [];
+
+        items.forEach((item, i) => {
+            if (!query) {
+                item.style.display = '';
+                return;
+            }
+            const commit = commits[i];
+            if (!commit) { item.style.display = 'none'; return; }
+
+            const match = commit.message.toLowerCase().includes(query)
+                || commit.author.toLowerCase().includes(query)
+                || commit.short_hash.toLowerCase().includes(query)
+                || commit.hash.toLowerCase().includes(query);
+            item.style.display = match ? '' : 'none';
+        });
+    }, 200); // 200ms 防抖，优化连续输入造成的频繁 DOM 渲染
 }
 
 // ==================== 弹窗 ====================
@@ -1294,6 +1615,9 @@ async function loadRemoteInfo() {
             document.getElementById('push-branch-select').value = info.current_branch;
         }
 
+        // NOTE: 自动加载同步状态指示器
+        loadSyncStatus();
+
     } catch (error) {
         showToast(error.message, 'error');
     }
@@ -1373,8 +1697,432 @@ async function pushToRemote() {
     }
 }
 
+/**
+ * 获取远程更新 (Fetch)
+ */
+async function fetchRemote() {
+    const btn = document.getElementById('btn-fetch-remote');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 获取中...`;
+    }
+
+    try {
+        const result = await apiRequest('/api/remote/fetch', { method: 'POST' });
+        showToast(result.message, 'success');
+        loadBranchTree();
+        refreshRepoInfo();
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 获取 (Fetch)`;
+        }
+    }
+}
+
+/**
+ * 拉取远程更新 (Pull)
+ */
+async function pullRemote() {
+    const btn = document.getElementById('btn-pull-remote');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 拉取中...`;
+    }
+
+    try {
+        const result = await apiRequest('/api/remote/pull', { method: 'POST' });
+        showToast(result.message, 'success');
+        loadBranchTree();
+        refreshRepoInfo();
+        loadStatus();
+    } catch (error) {
+        // 如果出错，跳转到状态面板以方便解决冲突
+        showToast(error.message, 'error');
+        loadStatus();
+        const navBtn = document.querySelector('[data-panel="status"]');
+        if (navBtn) navBtn.click();
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg> 拉取 (Pull)`;
+        }
+    }
+}
+
+// ==================== 用户设置 ====================
+
+/**
+ * 显示用户设置弹窗
+ */
+async function showUserConfig() {
+    const overlay = document.getElementById('modal-overlay');
+    const modal = document.getElementById('modal');
+
+    document.getElementById('modal-title').textContent = '👤 配置当前仓库用户信息';
+    document.getElementById('modal-message').innerHTML = `
+        <div class="edit-branch-form">
+            <div class="input-group">
+                <label>用户名 (user.name)</label>
+                <input type="text" id="config-user-name" spellcheck="false" placeholder="例如：John Doe">
+            </div>
+            <div class="input-group">
+                <label>邮箱 (user.email)</label>
+                <input type="text" id="config-user-email" spellcheck="false" placeholder="例如：john@example.com">
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-secondary); margin-top: 8px;">
+                提示：这仅会修改当前仓库的配置。留空则会取消当前仓库配置而使用全局配置。
+            </div>
+        </div>
+    `;
+    overlay.style.display = 'flex';
+
+    // 尝试加载当前配置
+    try {
+        const data = await apiRequest('/api/config/user');
+        if (data) {
+            document.getElementById('config-user-name').value = data.name;
+            document.getElementById('config-user-email').value = data.email;
+        }
+    } catch (e) {
+        // 忽略加载错误
+    }
+
+    const confirmBtn = document.getElementById('modal-confirm-btn');
+    const newBtn = confirmBtn.cloneNode(true);
+    newBtn.textContent = '保存';
+    newBtn.className = 'btn btn-primary';
+    confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+
+    newBtn.addEventListener('click', async () => {
+        closeModal();
+        await saveUserConfig();
+    });
+}
+
+/**
+ * 保存用户设置
+ */
+async function saveUserConfig() {
+    const name = document.getElementById('config-user-name').value.trim();
+    const email = document.getElementById('config-user-email').value.trim();
+
+    try {
+        await apiRequest('/api/config/user', {
+            method: 'POST',
+            body: JSON.stringify({ name, email }),
+        });
+        showToast('用户信息保存成功', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// ==================== 最近仓库列表 ====================
+
+// NOTE: 使用 localStorage 存储最近打开的仓库路径，最多保存5个
+const RECENT_REPOS_KEY = 'git-manager-recent-repos';
+const MAX_RECENT_REPOS = 5;
+
+/**
+ * 保存仓库路径到最近列表
+ * @param {string} path - 仓库路径
+ */
+function saveRecentRepo(path) {
+    let repos = JSON.parse(localStorage.getItem(RECENT_REPOS_KEY) || '[]');
+    // NOTE: 移除已存在的相同路径，然后置顶
+    repos = repos.filter(r => r !== path);
+    repos.unshift(path);
+    repos = repos.slice(0, MAX_RECENT_REPOS);
+    localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(repos));
+    renderRecentRepos();
+}
+
+/**
+ * 渲染最近仓库列表
+ */
+function renderRecentRepos() {
+    const repos = JSON.parse(localStorage.getItem(RECENT_REPOS_KEY) || '[]');
+    const section = document.getElementById('recent-repos-section');
+    const list = document.getElementById('recent-repos-list');
+
+    if (repos.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+    list.innerHTML = repos.map(repo => {
+        // NOTE: 取路径最后一级目录名作为显示名
+        const name = repo.split(/[\\/]/).filter(Boolean).pop() || repo;
+        return `
+            <div class="recent-repo-item" onclick="document.getElementById('repo-path-input').value='${escapeAttr(repo)}'; connectRepo();" title="${escapeHtml(repo)}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+                <div class="recent-repo-info">
+                    <span class="recent-repo-name">${escapeHtml(name)}</span>
+                    <span class="recent-repo-path">${escapeHtml(repo)}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ==================== 撤销暂存 ====================
+
+/**
+ * 撤销全部暂存
+ * NOTE: 将所有已 git add 的文件移回工作区
+ */
+async function unstageAll() {
+    try {
+        await apiRequest('/api/unstage', { method: 'POST', body: JSON.stringify({}) });
+        showToast('已撤销全部暂存', 'success');
+        loadStatus();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// ==================== Diff 查看器 ====================
+
+/**
+ * 打开文件 Diff 查看器
+ * @param {string} filePath - 文件路径
+ */
+async function showFileDiff(filePath) {
+    const overlay = document.getElementById('diff-viewer-overlay');
+    const content = document.getElementById('diff-viewer-content');
+    const filename = document.getElementById('diff-viewer-filename');
+    const commitInfo = document.getElementById('diff-commit-info');
+    const fileList = document.getElementById('diff-file-list');
+
+    filename.textContent = filePath;
+    commitInfo.style.display = 'none';
+    fileList.style.display = 'none';
+    content.innerHTML = '<div class="diff-loading">加载中...</div>';
+    overlay.style.display = 'flex';
+
+    try {
+        const data = await apiRequest(`/api/diff/file?path=${encodeURIComponent(filePath)}`);
+        if (!data.has_diff) {
+            content.innerHTML = '<div class="diff-empty">没有变更内容</div>';
+            return;
+        }
+
+        let diffText = data.staged_diff || data.unstaged_diff || data.untracked_content || '';
+        content.innerHTML = renderDiffHtml(diffText);
+    } catch (error) {
+        content.innerHTML = `<div class="diff-error">加载失败: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
+/**
+ * 打开提交 Diff 查看器
+ * @param {string} hash - 提交哈希
+ */
+async function showCommitDiff(hash) {
+    const overlay = document.getElementById('diff-viewer-overlay');
+    const content = document.getElementById('diff-viewer-content');
+    const filename = document.getElementById('diff-viewer-filename');
+    const commitInfoEl = document.getElementById('diff-commit-info');
+    const fileListEl = document.getElementById('diff-file-list');
+
+    filename.textContent = '提交详情';
+    content.innerHTML = '<div class="diff-loading">加载中...</div>';
+    commitInfoEl.style.display = 'none';
+    fileListEl.style.display = 'none';
+    overlay.style.display = 'flex';
+
+    try {
+        const data = await apiRequest(`/api/diff/commit?hash=${encodeURIComponent(hash)}`);
+
+        // NOTE: 渲染提交基本信息
+        if (data.commit && data.commit.hash) {
+            commitInfoEl.style.display = 'block';
+            commitInfoEl.innerHTML = `
+                <div class="diff-commit-row">
+                    <span class="diff-commit-label">提交</span>
+                    <span class="commit-hash" onclick="copyHash('${escapeAttr(data.commit.hash)}', this)" title="点击复制">
+                        ${escapeHtml(data.commit.short_hash)}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:3px;opacity:0.5">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                    </span>
+                </div>
+                <div class="diff-commit-row">
+                    <span class="diff-commit-label">作者</span>
+                    <span>${escapeHtml(data.commit.author)}</span>
+                </div>
+                <div class="diff-commit-row">
+                    <span class="diff-commit-label">日期</span>
+                    <span>${formatDate(data.commit.date)}</span>
+                </div>
+                <div class="diff-commit-row">
+                    <span class="diff-commit-label">信息</span>
+                    <span>${escapeHtml(data.commit.message)}</span>
+                </div>
+            `;
+            filename.textContent = data.commit.message;
+        }
+
+        // NOTE: 渲染变更文件列表
+        if (data.changed_files && data.changed_files.length > 0) {
+            fileListEl.style.display = 'block';
+            fileListEl.innerHTML = `
+                <div class="diff-file-list-header">${data.changed_files.length} 个文件变更</div>
+                ${data.changed_files.map(f => {
+                const statusCls = f.status === '新增' ? 'added' : f.status === '已删除' ? 'deleted' : 'modified';
+                return `<div class="diff-file-item">
+                        <span class="file-status ${statusCls}">${f.status}</span>
+                        <span>${escapeHtml(f.path)}</span>
+                    </div>`;
+            }).join('')}
+            `;
+        }
+
+        // NOTE: 渲染 diff 内容
+        if (data.diff) {
+            content.innerHTML = renderDiffHtml(data.diff);
+        } else {
+            content.innerHTML = '<div class="diff-empty">没有 diff 内容（可能是初始提交）</div>';
+        }
+    } catch (error) {
+        content.innerHTML = `<div class="diff-error">加载失败: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
+/**
+ * 将 diff 文本渲染为语法高亮的 HTML
+ * NOTE: 解析 unified diff 格式，为每行添加行号和颜色标记
+ * @param {string} diffText - 原始 diff 文本
+ * @returns {string} HTML 字符串
+ */
+function renderDiffHtml(diffText) {
+    if (!diffText) return '<div class="diff-empty">无变更内容</div>';
+
+    const lines = diffText.split('\n');
+    let html = '<div class="diff-table">';
+    let oldLine = 0;
+    let newLine = 0;
+    let currentFile = '';
+
+    lines.forEach(line => {
+        // NOTE: 解析文件头
+        if (line.startsWith('diff --git')) {
+            const match = line.match(/b\/(.+)$/);
+            if (match) currentFile = match[1];
+            html += `<div class="diff-file-header">${escapeHtml(line)}</div>`;
+            return;
+        }
+        if (line.startsWith('---') || line.startsWith('+++')) {
+            html += `<div class="diff-line diff-meta"><span class="diff-line-content">${escapeHtml(line)}</span></div>`;
+            return;
+        }
+
+        // NOTE: 解析 hunk 头 @@ -x,y +a,b @@
+        const hunkMatch = line.match(/^@@\s+-?(\d+)(?:,\d+)?\s+\+?(\d+)(?:,\d+)?\s+@@(.*)/);
+        if (hunkMatch) {
+            oldLine = parseInt(hunkMatch[1], 10);
+            newLine = parseInt(hunkMatch[2], 10);
+            html += `<div class="diff-line diff-hunk"><span class="diff-line-content">${escapeHtml(line)}</span></div>`;
+            return;
+        }
+
+        // NOTE: 渲染增删改行
+        let lineClass = '';
+        let oldNum = '';
+        let newNum = '';
+
+        if (line.startsWith('+')) {
+            lineClass = 'diff-add';
+            newNum = newLine++;
+            oldNum = '';
+        } else if (line.startsWith('-')) {
+            lineClass = 'diff-del';
+            oldNum = oldLine++;
+            newNum = '';
+        } else {
+            lineClass = 'diff-context';
+            oldNum = oldLine++;
+            newNum = newLine++;
+        }
+
+        html += `<div class="diff-line ${lineClass}">`
+            + `<span class="diff-gutter diff-gutter-old">${oldNum}</span>`
+            + `<span class="diff-gutter diff-gutter-new">${newNum}</span>`
+            + `<span class="diff-line-content">${escapeHtml(line)}</span>`
+            + `</div>`;
+    });
+
+    html += '</div>';
+    return html;
+}
+
+/**
+ * 关闭 Diff 查看器
+ */
+function closeDiffViewer() {
+    document.getElementById('diff-viewer-overlay').style.display = 'none';
+}
+
+// NOTE: ESC 键和点击遮罩关闭 diff 查看器
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDiffViewer();
+});
+document.getElementById('diff-viewer-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeDiffViewer();
+});
+
+// ==================== 远程同步状态指示器 ====================
+
+/**
+ * 加载远程同步状态
+ * NOTE: 调用已有的 /api/remote/sync-status 接口
+ */
+async function loadSyncStatus() {
+    const panel = document.getElementById('sync-status-panel');
+    const list = document.getElementById('sync-status-list');
+
+    try {
+        const data = await apiRequest('/api/remote/sync-status');
+
+        if (!data.branches || data.branches.length === 0) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'block';
+        list.innerHTML = data.branches.map(b => {
+            // NOTE: 根据同步状态选择不同标记样式
+            const statusConfig = {
+                synced: { icon: '✅', cls: 'synced', text: '已同步' },
+                ahead: { icon: '⬆️', cls: 'ahead', text: `领先 ${b.ahead} 个提交` },
+                behind: { icon: '⬇️', cls: 'behind', text: `落后 ${b.behind} 个提交` },
+                diverged: { icon: '⚠️', cls: 'diverged', text: `领先 ${b.ahead} / 落后 ${b.behind}` },
+            };
+            const s = statusConfig[b.status] || statusConfig.synced;
+
+            return `
+                <div class="sync-status-item ${s.cls} ${b.is_current ? 'is-current' : ''}">
+                    <span class="sync-branch">${b.is_current ? '●' : ''} ${escapeHtml(b.branch)}</span>
+                    <span class="sync-badge ${s.cls}">${s.icon} ${s.text}</span>
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        // NOTE: 静默失败，不干扰用户
+        panel.style.display = 'none';
+    }
+}
+
 
 // ==================== 初始化 ====================
 
-// NOTE: 页面加载完成后尝试刷新仓库信息
+// NOTE: 页面加载完成后刷新仓库信息和最近仓库列表
 refreshRepoInfo();
+renderRecentRepos();

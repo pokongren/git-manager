@@ -33,6 +33,14 @@
             </div>
         </div>
         <div class="header-right">
+            <button class="btn btn-sm btn-ghost" onclick="showUserConfig()" style="margin-right: 12px; height: 32px;"
+                title="配置用户信息">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                用户设置
+            </button>
             <div class="branch-badge" id="current-branch-badge" style="display:none;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="6" y1="3" x2="6" y2="15" />
@@ -138,6 +146,18 @@
                                 </button>
                             </div>
                         </div>
+                        <!-- NOTE: 最近仓库列表，纯前端 localStorage 实现 -->
+                        <div class="recent-repos" id="recent-repos-section" style="display:none;">
+                            <div class="recent-repos-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <polyline points="12 6 12 12 16 14" />
+                                </svg>
+                                <span>最近打开</span>
+                            </div>
+                            <div class="recent-repos-list" id="recent-repos-list"></div>
+                        </div>
                         <div class="info-card" id="repo-info-card" style="display:none;">
                             <div class="info-row"><span class="info-label">仓库根目录</span><span class="info-value"
                                     id="info-root"></span></div>
@@ -177,6 +197,30 @@
                         <span><b>操作说明：</b>勾选要保存的文件 → 点击"暂存选中" → 输入提交信息 → 点击"提交"。未勾选的文件不会被保存。</span>
                     </div>
 
+                    <!-- 冲突警告提示 -->
+                    <div class="conflict-warning" id="status-conflict-warning" style="display:none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-danger)"
+                            stroke-width="2">
+                            <path
+                                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                            <line x1="12" y1="9" x2="12" y2="13" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                        <div class="conflict-msg">
+                            <strong>存在文件冲突</strong>
+                            <p>拉取或合并发生了冲突。请在编辑器中解决标红文件的冲突，然后暂存并提交；或者中止当前合并。</p>
+                        </div>
+                        <button class="btn btn-sm btn-danger" onclick="abortMerge()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="15" y1="9" x2="9" y2="15" />
+                                <line x1="9" y1="9" x2="15" y2="15" />
+                            </svg>
+                            中止合并 (Abort)
+                        </button>
+                    </div>
+
                     <div id="status-clean-msg" class="empty-state" style="display:none;">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)"
                             stroke-width="1.5">
@@ -206,6 +250,14 @@
                                     暂存选中 (<span id="selected-count">0</span>)
                                 </button>
                                 <button class="btn btn-sm btn-outline" onclick="stageAll()">全部暂存</button>
+                                <button class="btn btn-sm btn-ghost" onclick="unstageAll()" title="撤销全部暂存">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="1 4 1 10 7 10" />
+                                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                                    </svg>
+                                    撤销暂存
+                                </button>
                             </div>
                             <div class="commit-inline">
                                 <select id="commit-type-select" onchange="applyCommitType()" title="选择提交类型">
@@ -367,6 +419,16 @@
                     </div>
                 </div>
                 <div class="panel-body">
+                    <!-- NOTE: 提交历史搜索过滤 -->
+                    <div class="history-search" id="history-search">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                        <input type="text" id="history-search-input" placeholder="搜索提交信息、作者或哈希..."
+                            oninput="filterHistory()" spellcheck="false">
+                    </div>
                     <div class="commit-list" id="commit-list"></div>
                 </div>
             </div>
@@ -414,6 +476,26 @@
                         </div>
                     </div>
 
+                    <!-- NOTE: 远程同步状态指示器 -->
+                    <div class="sync-status-panel" id="sync-status-panel" style="display:none;">
+                        <div class="sync-status-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            <span>分支同步状态</span>
+                            <button class="btn btn-sm btn-ghost" onclick="loadSyncStatus()" title="刷新同步状态">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="23 4 23 10 17 10" />
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="sync-status-list"></div>
+                    </div>
+
                     <div class="info-card" id="remote-list-card" style="margin-top:0; margin-bottom: 20px;">
                         <h3 style="margin-bottom: 12px; font-size: 1rem; color: var(--color-text);">当前关联的远程仓库</h3>
                         <div id="remote-list-container">
@@ -424,7 +506,29 @@
                     </div>
 
                     <div class="section-divider">
-                        <span>代码推送</span>
+                        <span>代码推送与同步</span>
+                    </div>
+
+                    <div class="sync-actions"
+                        style="margin-top: 16px; margin-bottom: 20px; display: flex; gap: 12px; padding: 16px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-muted);">
+                        <button class="btn btn-outline" id="btn-fetch-remote" onclick="fetchRemote()"
+                            style="flex: 1; justify-content: center;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            获取 (Fetch)
+                        </button>
+                        <button class="btn btn-primary" id="btn-pull-remote" onclick="pullRemote()"
+                            style="flex: 1; justify-content: center;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <polyline points="19 12 12 19 5 12" />
+                            </svg>
+                            拉取 (Pull)
+                        </button>
                     </div>
 
                     <div class="form-card" style="margin-top: 16px;">
@@ -469,6 +573,34 @@
             <div class="modal-footer">
                 <button class="btn btn-outline" onclick="closeModal()">取消</button>
                 <button class="btn btn-danger" id="modal-confirm-btn">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diff 查看器弹窗 -->
+    <div class="diff-viewer-overlay" id="diff-viewer-overlay" style="display:none;">
+        <div class="diff-viewer-panel">
+            <div class="diff-viewer-header">
+                <div class="diff-viewer-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span id="diff-viewer-filename">文件差异</span>
+                </div>
+                <button class="btn btn-sm btn-ghost" onclick="closeDiffViewer()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <!-- NOTE: 提交详情信息区域（仅提交diff时显示） -->
+            <div class="diff-commit-info" id="diff-commit-info" style="display:none;"></div>
+            <!-- NOTE: 变更文件列表（仅提交diff时显示） -->
+            <div class="diff-file-list" id="diff-file-list" style="display:none;"></div>
+            <div class="diff-viewer-content" id="diff-viewer-content">
+                <div class="diff-loading">加载中...</div>
             </div>
         </div>
     </div>

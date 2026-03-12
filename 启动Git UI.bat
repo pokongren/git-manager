@@ -9,6 +9,7 @@ echo.
 REM 设置项目路径
 set "PROJECT_PATH=%~dp0"
 set "BACKEND_PATH=%PROJECT_PATH%backend"
+set "VENV_PYTHON=D:\Git\.venv\Scripts\python.exe"
 
 echo [1/3] 检查后端服务...
 
@@ -18,7 +19,7 @@ if %errorlevel% equ 0 (
     echo     端口 8765 已被占用，服务可能已在运行
 ) else (
     echo     启动后端服务...
-    start /min "Git UI Backend" cmd /c "cd /d "%BACKEND_PATH%" && python main.py"
+    start /min "Git UI Backend" cmd /c "cd /d "%BACKEND_PATH%" && "%VENV_PYTHON%" main.py"
     
     REM 等待服务启动
     echo     等待服务启动...

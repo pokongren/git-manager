@@ -531,14 +531,91 @@
                         </button>
                     </div>
 
+                    <!-- NOTE: 一键全部上传卡片：自动完成暂存→提交→推送的全流程 -->
+                    <div class="form-card" style="margin-top: 16px; border: 1px solid var(--color-primary); background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, var(--bg-card) 100%);">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <span style="font-size: 0.95rem; font-weight: 600; color: var(--color-primary);">⬆️ 全部代码一键上传</span>
+                            <span style="font-size: 0.75rem; color: var(--color-text-secondary); margin-left: auto;">自动 暂存 → 提交 → 推送</span>
+                        </div>
+                        <div class="input-group">
+                            <label for="push-all-commit-msg">提交说明（必填）</label>
+                            <input type="text" id="push-all-commit-msg" placeholder="例如：feat: 更新功能代码">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <div class="input-group" style="flex:1; margin-bottom:0;">
+                                <label for="push-all-remote">推送到</label>
+                                <input type="text" id="push-all-remote" value="origin" placeholder="origin" list="history-remotes">
+                            </div>
+                            <div class="input-group" style="flex:1; margin-bottom:0;">
+                                <label for="push-all-branch">远程分支</label>
+                                <input type="text" id="push-all-branch" value="main" placeholder="main" list="history-branches">
+                            </div>
+                        </div>
+                        <div class="form-actions" style="margin-top: 14px;">
+                            <button class="btn btn-primary" id="btn-push-all" onclick="pushAll()"
+                                style="width:100%; justify-content:center; background: linear-gradient(135deg, var(--color-primary), #8b5cf6);">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                ⬆️ 全部上传（暂存 + 提交 + 推送）
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- NOTE: 多选分支推送卡片：勾选多个本地分支批量推送到远程 -->
+                    <div class="form-card" style="margin-top: 16px; border: 1px solid var(--color-success); background: linear-gradient(135deg, rgba(16,185,129,0.07) 0%, var(--bg-card) 100%);">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" stroke-width="2">
+                                <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+                                <path d="M18 9a9 9 0 0 1-9 9"/>
+                            </svg>
+                            <span style="font-size: 0.95rem; font-weight: 600; color: var(--color-success);">🌿 多选分支推送</span>
+                            <button class="btn btn-sm btn-ghost" onclick="loadBranchesForPush()" title="刷新分支列表" style="margin-left:auto; padding: 2px 6px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                                </svg>
+                                刷新
+                            </button>
+                        </div>
+                        <!-- NOTE: 分支勾选列表，由 JS 动态渲染 -->
+                        <div id="branch-push-list" style="display:flex; flex-wrap:wrap; gap:8px; min-height:36px; padding:8px; background:var(--bg-tertiary); border-radius:var(--radius-sm); margin-bottom:12px;">
+                            <span style="color:var(--color-text-secondary); font-size:0.85rem;">点击「刷新」加载本地分支列表...</span>
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label for="push-branches-remote">推送到远程别名</label>
+                            <input type="text" id="push-branches-remote" value="origin" placeholder="origin" list="history-remotes">
+                        </div>
+                        <div class="form-actions" style="margin-top: 12px;">
+                            <button class="btn btn-outline" onclick="selectAllBranchesForPush()" style="flex:1;">全选</button>
+                            <button class="btn btn-primary" id="btn-push-branches" onclick="pushSelectedBranches()"
+                                style="flex:2; justify-content:center; background: linear-gradient(135deg, var(--color-success), #0ea5e9);">
+                                🌿 推送选中的分支
+                            </button>
+                        </div>
+                        <!-- 推送结果区域 -->
+                        <div id="push-branches-result" style="display:none; margin-top:12px; padding:10px; background:var(--bg-tertiary); border-radius:var(--radius-sm); font-size:0.82rem;"></div>
+                    </div>
+
+                    <div class="section-divider" style="margin-top: 20px;">
+                        <span>手动分步推送</span>
+                    </div>
+
                     <div class="form-card" style="margin-top: 16px;">
+
                         <div class="input-group">
                             <label for="push-remote-select">推送到远程别名</label>
-                            <input type="text" id="push-remote-select" value="origin" placeholder="例如：origin">
+                            <input type="text" id="push-remote-select" value="origin" placeholder="例如：origin" list="history-remotes">
                         </div>
                         <div class="input-group">
                             <label for="push-branch-select">推送到远程分支名</label>
-                            <input type="text" id="push-branch-select" placeholder="例如：main 或 master">
+                            <input type="text" id="push-branch-select" placeholder="例如：main 或 master" list="history-branches">
                         </div>
                         <div class="form-actions" style="margin-top: 16px;">
                             <button class="btn btn-primary" id="btn-push-remote" onclick="pushToRemote()"
@@ -553,6 +630,12 @@
                             </button>
                         </div>
                     </div>
+                    </div>
+
+                    <!-- 推送表单历史记录 datalists -->
+                    <datalist id="history-remotes"></datalist>
+                    <datalist id="history-branches"></datalist>
+
                 </div>
             </div>
         </div>
@@ -605,7 +688,7 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?t=2026031102"></script>
 </body>
 
 </html>

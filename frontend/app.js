@@ -1613,6 +1613,8 @@ async function loadRemoteInfo() {
         const info = await apiRequest('/api/repo/info');
         if (info && info.current_branch) {
             document.getElementById('push-branch-select').value = info.current_branch;
+            const pushAllBranchEl = document.getElementById('push-all-branch');
+            if (pushAllBranchEl) { pushAllBranchEl.value = info.current_branch; }
         }
 
         // NOTE: 自动加载同步状态指示器
@@ -1689,6 +1691,7 @@ async function pushToRemote() {
             body: JSON.stringify({ remote_name: remote, branch_name: branch }),
         });
         showToast(result.message, 'success');
+        savePushHistory(remote, branch);
     } catch (error) {
         showToast(error.message, 'error');
     } finally {
@@ -2121,8 +2124,204 @@ async function loadSyncStatus() {
 }
 
 
-// ==================== 初始化 ====================
+// ==================== 一键全部上传 ====================
+
+/**
+ * 一键全部上传：自动执行 暂存 → 提交 → 推送 三步流程
+ * NOTE: 调用 /api/push/all 接口，无需手动暂存，适合快速保存并上传
+ */
+async function pushAll() {
+    const msgInput = document.getElementById('push-all-commit-msg');
+    const remoteName = document.getElementById('push-all-remote').value.trim() || 'origin';
+    const branchName = document.getElementById('push-all-branch').value.trim() || document.getElementById('info-branch').textContent || 'main';
+    const commitMessage = msgInput.value.trim();
+
+    if (!commitMessage) {
+        showToast('请先填写提交说明（必填）', 'error');
+        msgInput.focus();
+        msgInput.style.boxShadow = '0 0 0 2px var(--color-danger)';
+        setTimeout(() => msgInput.style.boxShadow = '', 2000);
+        msgInput.focus();
+        return;
+    }
+
+    const btn = document.getElementById('btn-push-all');
+    const originalContent = btn.innerHTML;
+    // NOTE: 推送可能较慢，设置加载态防止重复点击
+    btn.disabled = true;
+    btn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        上传中，请稍候...
+    `;
+
+    try {
+        const data = await apiRequest('/api/push/all', {
+            method: 'POST',
+            body: JSON.stringify({
+                commit_message: commitMessage,
+                remote_name: remoteName,
+                branch_name: branchName,
+            }),
+        });
+        showToast(data.message, 'success');
+        // NOTE: 上传成功后清空提交信息，方便下次使用
+        // NOTE: 上传成功后清空提交信息，方便下次使用
+        savePushHistory(remoteName, branchName);
+        msgInput.value = '';
+        loadRemoteInfo();
+    } catch (error) {
+        showToast('上传失败：' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+}
+
+// ==================== 多选分支批量推送 ====================
+
+/**
+ * 加载本地分支列表并渲染为勾选框
+ * NOTE: 自动勾选当前所在分支，远程分支（origin/xxx）不显示
+ */
+async function loadBranchesForPush() {
+    const container = document.getElementById('branch-push-list');
+    container.innerHTML = '<span style="color:var(--color-text-secondary);font-size:0.85rem;">加载中...</span>';
+
+    try {
+        const data = await apiRequest('/api/branches');
+        // NOTE: 只显示本地分支，排除 origin/ 开头的远程分支
+        const localBranches = (data.branches || []).filter(b => !b.remote);
+
+        if (localBranches.length === 0) {
+            container.innerHTML = '<span style="color:var(--color-text-secondary);font-size:0.85rem;">暂无本地分支</span>';
+            return;
+        }
+
+        container.innerHTML = localBranches.map(b => `
+            <label style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
+                background:var(--bg-card);border-radius:20px;cursor:pointer;
+                border:1px solid ${b.current ? 'var(--color-success)' : 'var(--border-muted)'};
+                font-size:0.82rem;">
+                <input type="checkbox" class="branch-push-checkbox" value="${escapeAttr(b.name)}"
+                    ${b.current ? 'checked' : ''}>
+                <span style="color:${b.current ? 'var(--color-success)' : 'var(--color-text)'}">
+                    ${b.current ? '● ' : ''}${escapeHtml(b.name)}
+                </span>
+            </label>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = `<span style="color:var(--color-danger);font-size:0.85rem;">加载失败: ${escapeHtml(error.message)}</span>`;
+    }
+}
+
+/**
+ * 全选/取消全选 分支列表
+ */
+function selectAllBranchesForPush() {
+    const checkboxes = document.querySelectorAll('.branch-push-checkbox');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    checkboxes.forEach(cb => { cb.checked = !allChecked; });
+}
+
+/**
+ * 推送用户勾选的所有本地分支到远程
+ */
+async function pushSelectedBranches() {
+    const checkboxes = document.querySelectorAll('.branch-push-checkbox:checked');
+    const selected = Array.from(checkboxes).map(cb => cb.value);
+    const remoteName = document.getElementById('push-branches-remote').value.trim() || 'origin';
+    const resultEl = document.getElementById('push-branches-result');
+
+    if (selected.length === 0) {
+        showToast('请先勾选至少一个分支', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('btn-push-branches');
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        推送中 (${selected.length} 个分支)...
+    `;
+    resultEl.style.display = 'none';
+
+    try {
+        const data = await apiRequest('/api/push/branches', {
+            method: 'POST',
+            body: JSON.stringify({ branches: selected, remote_name: remoteName }),
+        });
+
+        // NOTE: 分享成功后保存remote但这里有多分支，只保存remote
+        if (data.success) {
+            savePushHistory(remoteName, null);
+        }
+        
+        // NOTE: 渲染每个分支的推送结果
+        const resultsHtml = data.results.map(r => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-muted);">
+                <span style="color:${r.success ? 'var(--color-success)' : 'var(--color-danger)'}">
+                    ${r.success ? '✅' : '❌'}
+                </span>
+                <span style="font-weight:500;">${escapeHtml(r.branch)}</span>
+                <span style="color:var(--color-text-secondary);font-size:0.8rem;margin-left:auto;">
+                    ${r.success ? (r.output || '推送成功') : (r.error || '推送失败')}
+                </span>
+            </div>
+        `).join('');
+
+        resultEl.innerHTML = `
+            <div style="font-weight:600;margin-bottom:8px;color:${data.success ? 'var(--color-success)' : 'var(--color-warning)'}">
+                ${data.message}
+            </div>
+            ${resultsHtml}
+        `;
+        resultEl.style.display = 'block';
+        showToast(data.message, data.success ? 'success' : 'info');
+    } catch (error) {
+        showToast('推送失败：' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+}
+
+
 
 // NOTE: 页面加载完成后刷新仓库信息和最近仓库列表
 refreshRepoInfo();
 renderRecentRepos();
+// NOTE: 加载多选推送的分支列表
+loadBranchesForPush();
+
+// ==================== 推送历史记录（下拉菜单） ====================
+const PUSH_HISTORY_KEY = 'git-manager-push-history';
+
+function savePushHistory(remote, branch) {
+    if (!remote && !branch) return;
+    let history = JSON.parse(localStorage.getItem(PUSH_HISTORY_KEY) || '{"remotes":[], "branches":[]}');
+    if (remote && !history.remotes.includes(remote)) {
+        history.remotes.unshift(remote);
+        history.remotes = history.remotes.slice(0, 10);
+    }
+    if (branch && !history.branches.includes(branch)) {
+        history.branches.unshift(branch);
+        history.branches = history.branches.slice(0, 15);
+    }
+    localStorage.setItem(PUSH_HISTORY_KEY, JSON.stringify(history));
+    renderPushHistoryDataLists(); 
+}
+
+function renderPushHistoryDataLists() {
+    let history = JSON.parse(localStorage.getItem(PUSH_HISTORY_KEY) || '{"remotes":["origin"], "branches":["main", "master"]}');
+    const remoteList = document.getElementById('history-remotes');
+    if (remoteList) remoteList.innerHTML = history.remotes.map(r => `<option value="${escapeAttr(r)}">`).join('');
+    const branchList = document.getElementById('history-branches');
+    if (branchList) branchList.innerHTML = history.branches.map(b => `<option value="${escapeAttr(b)}">`).join('');
+}
+
+renderPushHistoryDataLists();

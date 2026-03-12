@@ -279,6 +279,105 @@ def push_to_remote(req: PushRequest):
     return {"success": True, "message": f"已成功推送到 {req.remote_name}/{req.branch_name}", "output": result["output"]}
 
 
+class PushAllRequest(BaseModel):
+    """一键全部上传请求"""
+    commit_message: str
+    remote_name: str = "origin"
+    branch_name: str = "main"
+
+
+@app.post("/api/push/all")
+def push_all(req: PushAllRequest):
+    """
+    一键全部上传：暂存所有文件 → 提交 → 推送
+    NOTE: 适合快速保存并上传所有本地修改，跳过逐个选文件的步骤
+    """
+    if not req.commit_message.strip():
+        raise HTTPException(status_code=400, detail="提交信息不能为空")
+
+    # 第一步：暂存全部文件
+    add_result = run_git_command(["add", "."])
+    if not add_result["success"]:
+        raise HTTPException(status_code=400, detail=f"暂存失败: {add_result['error']}")
+
+    # 检查是否有内容可提交（防止空提交报错）
+    status_result = run_git_command(["status", "--porcelain"])
+    staged_result = run_git_command(["diff", "--cached", "--name-only"])
+
+    # 第二步：提交（如果有已暂存的内容）
+    commit_output = ""
+    if staged_result["success"] and staged_result["output"].strip():
+        commit_result = run_git_command(["commit", "-m", req.commit_message])
+        if not commit_result["success"]:
+            raise HTTPException(status_code=400, detail=f"提交失败: {commit_result['error']}")
+        commit_output = commit_result["output"]
+    else:
+        commit_output = "没有新的变更需要提交"
+
+    # 第三步：推送
+    push_result = run_git_command(
+        ["push", "-u", req.remote_name, req.branch_name],
+        timeout=120
+    )
+    if not push_result["success"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"提交成功，但推送失败：{push_result['error']}"
+        )
+
+    return {
+        "success": True,
+        "message": f"✅ 全部上传成功！已推送到 {req.remote_name}/{req.branch_name}",
+        "commit_output": commit_output,
+        "push_output": push_result["output"],
+    }
+
+
+class PushBranchesRequest(BaseModel):
+    """多分支推送请求"""
+    branches: list[str]
+    remote_name: str = "origin"
+
+
+@app.post("/api/push/branches")
+def push_branches(req: PushBranchesRequest):
+    """
+    批量推送多个指定分支到远程仓库
+    NOTE: 依次推送每个分支，记录各分支的成功/失败状态，全部完成后返回汇总
+    """
+    if not req.branches:
+        raise HTTPException(status_code=400, detail="请至少选择一个分支")
+
+    results = []
+    success_count = 0
+    fail_count = 0
+
+    for branch in req.branches:
+        branch = branch.strip()
+        if not branch:
+            continue
+        result = run_git_command(
+            ["push", "-u", req.remote_name, f"{branch}:{branch}"],
+            timeout=120,
+        )
+        if result["success"]:
+            success_count += 1
+            results.append({"branch": branch, "success": True, "output": result["output"]})
+        else:
+            fail_count += 1
+            results.append({"branch": branch, "success": False, "error": result["error"]})
+
+    overall_success = fail_count == 0
+    message = f"推送完成：共 {len(results)} 个分支，成功 {success_count} 个"
+    if fail_count > 0:
+        message += f"，失败 {fail_count} 个"
+
+    return {
+        "success": overall_success,
+        "message": message,
+        "results": results,
+    }
+
 @app.post("/api/remote/fetch")
 def fetch_remote():
     """获取远程更新"""

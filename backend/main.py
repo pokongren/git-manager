@@ -102,6 +102,18 @@ class UnstageRequest(BaseModel):
     files: Optional[list[str]] = None
 
 
+class CloneRequest(BaseModel):
+    """克隆仓库请求"""
+    url: str
+    path: str
+
+
+class PullRequest(BaseModel):
+    """拉取请求 - 支持指定远程和分支"""
+    remote_name: str = "origin"
+    branch_name: Optional[str] = None  # NOTE: 为空时拉取当前分支对应的远程分支
+
+
 def run_git_command(args: list[str], cwd: Optional[str] = None, timeout: int = 30) -> dict:
     """
     执行 Git 命令并返回结果
@@ -200,6 +212,52 @@ def open_repo(req: RepoPathRequest):
     CURRENT_REPO_PATH = path
     logger.info("打开仓库: %s", path)
     return {"success": True, "path": path}
+
+
+@app.post("/api/repo/clone")
+def clone_repo(req: CloneRequest):
+    """
+    从远程 URL 克隆仓库到本地目录
+    NOTE: 克隆成功后自动设置为当前工作仓库
+    """
+    global CURRENT_REPO_PATH
+    url = req.url.strip()
+    path = req.path.strip()
+
+    if not url:
+        raise HTTPException(status_code=400, detail="请输入远程仓库 URL")
+    if not path:
+        raise HTTPException(status_code=400, detail="请输入本地保存路径")
+
+    # NOTE: 如果目标目录已存在且不为空，阻止克隆
+    if os.path.isdir(path) and os.listdir(path):
+        raise HTTPException(status_code=400, detail=f"目录已存在且不为空：{path}")
+
+    try:
+        result = subprocess.run(
+            ["git", "clone", url, path],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or "克隆失败"
+            raise HTTPException(status_code=400, detail=f"克隆失败：{error_msg}")
+
+        # NOTE: 克隆成功后自动连接该仓库
+        CURRENT_REPO_PATH = path
+        logger.info("克隆仓库成功: %s -> %s", url, path)
+        return {
+            "success": True,
+            "message": f"仓库已克隆到 {path}",
+            "path": path,
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="克隆操作超时（5分钟），请检查网络连接")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="未找到 Git 可执行文件")
 
 
 @app.get("/api/repo/info")
@@ -380,7 +438,7 @@ def push_branches(req: PushBranchesRequest):
 
 @app.post("/api/remote/fetch")
 def fetch_remote():
-    """获取远程更新"""
+    """获取远程更新（不合并到本地）"""
     result = run_git_command(["fetch", "--all"], timeout=120)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=f"获取失败: {result['error']}")
@@ -388,15 +446,78 @@ def fetch_remote():
     return {"success": True, "message": "已获取远程更新", "output": result["output"]}
 
 
+@app.post("/api/remote/fetch-preview")
+def fetch_preview():
+    """
+    Fetch 远程变更并返回预览信息（ahead/behind 数量 + 待合并提交列表）
+    NOTE: 只下载远程数据，不会修改本地任何文件，安全预览后由用户决定是否合并
+    """
+    # 第一步：fetch 远程
+    fetch_result = run_git_command(["fetch", "--all"], timeout=120)
+    if not fetch_result["success"]:
+        raise HTTPException(status_code=400, detail=f"Fetch 失败: {fetch_result['error']}")
+
+    # 获取当前分支
+    branch_result = run_git_command(["branch", "--show-current"])
+    current_branch = branch_result["output"].strip() if branch_result["success"] else "HEAD"
+
+    # 计算本地落后远端多少个提交
+    behind_result = run_git_command([
+        "rev-list", "--count", f"HEAD..origin/{current_branch}"
+    ])
+    ahead_result = run_git_command([
+        "rev-list", "--count", f"origin/{current_branch}..HEAD"
+    ])
+
+    behind = int(behind_result["output"]) if behind_result["success"] and behind_result["output"].isdigit() else 0
+    ahead = int(ahead_result["output"]) if ahead_result["success"] and ahead_result["output"].isdigit() else 0
+
+    # 获取远端有但本地没有的提交列表（即待合并的提交）
+    incoming_commits = []
+    if behind > 0:
+        log_result = run_git_command([
+            "log", f"HEAD..origin/{current_branch}",
+            "--format=%h|%an|%ai|%s", "-20"
+        ])
+        if log_result["success"]:
+            for line in log_result["output"].split("\n"):
+                if line.strip():
+                    parts = line.split("|", 3)
+                    if len(parts) >= 4:
+                        incoming_commits.append({
+                            "hash": parts[0],
+                            "author": parts[1],
+                            "date": parts[2],
+                            "message": parts[3],
+                        })
+
+    return {
+        "success": True,
+        "current_branch": current_branch,
+        "behind": behind,
+        "ahead": ahead,
+        "incoming_commits": incoming_commits,
+        "message": f"Fetch 完成：本地落后 {behind} 个提交，领先 {ahead} 个提交",
+    }
+
+
 @app.post("/api/remote/pull")
-def pull_remote():
-    """拉取远程更新并合并"""
-    result = run_git_command(["pull"], timeout=120)
+def pull_remote(req: PullRequest = PullRequest()):
+    """
+    执行合并：将已 fetch 的远端变更合并到当前分支
+    NOTE: 支持指定 remote_name 和 branch_name，可以拉取指定远程分支
+    """
+    if req.branch_name:
+        # NOTE: 拉取指定远程分支
+        result = run_git_command(["pull", req.remote_name, req.branch_name], timeout=120)
+    else:
+        # NOTE: 默认拉取当前分支对应的远程
+        result = run_git_command(["pull"], timeout=120)
     if not result["success"]:
         # NOTE: 返回更详细的错误，以便前端判断是否冲突
-        raise HTTPException(status_code=400, detail=f"拉取失败: {result['error']}\n请检查是否发生冲突。")
+        raise HTTPException(status_code=400, detail=f"合并失败: {result['error']}\n请检查是否发生冲突。")
         
-    return {"success": True, "message": "拉取成功", "output": result["output"]}
+    return {"success": True, "message": "合并成功", "output": result["output"]}
 
 
 # ==================== 状态查看 ====================
@@ -1291,25 +1412,32 @@ def get_blame_summary():
 
 from pathlib import Path
 
-# NOTE: 使用 Path.resolve() 获取绝对路径，避免以模块方式启动时路径错误
-FRONTEND_DIR = str(Path(__file__).resolve().parent.parent / "frontend")
-logger.info("前端静态文件目录: %s", FRONTEND_DIR)
+# NOTE: Vite 构建产物目录（npm run build -> dist/）
+FRONTEND_DIST_DIR = str(Path(__file__).resolve().parent.parent / "frontend" / "dist")
+# HACK: 如果 dist 目录不存在，回退到 frontend 目录（兼容旧模式）
+if not os.path.isdir(FRONTEND_DIST_DIR):
+    FRONTEND_DIST_DIR = str(Path(__file__).resolve().parent.parent / "frontend")
+logger.info("前端静态文件目录: %s", FRONTEND_DIST_DIR)
 
 
 @app.get("/")
 def serve_index():
-    """服务前端首页"""
-    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    """服务前端首页（SPA 入口）"""
+    index_path = os.path.join(FRONTEND_DIST_DIR, "index.html")
     if not os.path.isfile(index_path):
         raise HTTPException(status_code=500, detail=f"找不到前端文件: {index_path}")
     return FileResponse(index_path)
 
 
-# NOTE: 静态文件挂载放在最后，避免覆盖 API 路由
-if os.path.isdir(FRONTEND_DIR):
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+# NOTE: Vite 构建产物的静态资源挂载（JS/CSS 等放在 /assets/ 下）
+if os.path.isdir(FRONTEND_DIST_DIR):
+    assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+    # NOTE: 同时挂载根目录下的静态文件（如 favicon 等）
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIST_DIR), name="static")
 else:
-    logger.error("前端目录不存在: %s", FRONTEND_DIR)
+    logger.error("前端目录不存在: %s", FRONTEND_DIST_DIR)
 
 
 if __name__ == "__main__":

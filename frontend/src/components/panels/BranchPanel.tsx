@@ -159,8 +159,12 @@ export default function BranchPanel() {
               </div>
             </div>
 
-            {/* 分支节点 */}
-            {treeData.branches.map((branch, idx) => (
+            {/* 分支节点 - 当前分支置顶 */}
+            {[...treeData.branches].sort((a, b) => {
+              if (a.current) return -1
+              if (b.current) return 1
+              return 0
+            }).map((branch, idx) => (
               <div key={branch.name} className="tree-node is-branch">
                 <div className="tree-branch" data-color={idx % 6}>
                   <div className={`branch-card ${branch.current ? 'is-current' : ''}`}>

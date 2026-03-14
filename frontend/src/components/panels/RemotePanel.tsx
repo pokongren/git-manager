@@ -74,10 +74,16 @@ export default function RemotePanel() {
   const loadRemoteBranches = useCallback(async () => {
     try {
       const data = await api.getBranches()
-      // NOTE: 只提取远程分支名（去掉 origin/ 前缀）
+      // NOTE: 只提取远程分支名（去掉 origin/ 前缀），当前分支排第一
+      const currentBranch = data.current || ''
       const remote = (data.branches || [])
         .filter(b => b.remote && b.name.startsWith('origin/'))
         .map(b => b.name.replace('origin/', ''))
+        .sort((a, b) => {
+          if (a === currentBranch) return -1
+          if (b === currentBranch) return 1
+          return 0
+        })
       setRemoteBranches(remote)
     } catch {
       // 静默失败

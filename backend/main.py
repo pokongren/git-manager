@@ -626,14 +626,15 @@ def get_branch_tree():
                     })
 
     # NOTE: 获取所有本地分支
+    # HACK: subject 放在最后，因为它可能包含 | 字符，用 split 的 maxsplit 兜底
     branch_result = run_git_command([
-        "branch", "--format=%(refname:short)|%(objectname:short)|%(subject)",
+        "branch", "--format=%(refname:short)|%(objectname:short)|%(committerdate:relative)|%(authorname)|%(subject)",
     ])
     branch_list = []
     if branch_result["success"]:
         for line in branch_result["output"].split("\n"):
             if line.strip():
-                parts = line.split("|", 2)
+                parts = line.split("|", 4)
                 if len(parts) >= 1:
                     b_name = parts[0].strip()
                     if b_name == main_branch:
@@ -641,7 +642,9 @@ def get_branch_tree():
                     b_info = {
                         "name": b_name,
                         "hash": parts[1] if len(parts) > 1 else "",
-                        "message": parts[2] if len(parts) > 2 else "",
+                        "date": parts[2] if len(parts) > 2 else "",
+                        "author": parts[3] if len(parts) > 3 else "",
+                        "message": parts[4] if len(parts) > 4 else "",
                         "current": b_name == current_branch,
                         "ahead": 0,
                         "behind": 0,
@@ -683,11 +686,41 @@ def get_branch_tree():
 
                     branch_list.append(b_info)
 
+    # NOTE: 获取远程分支列表（fetch 后可见）
+    local_branch_names = {b["name"] for b in branch_list}
+    local_branch_names.add(main_branch)
+
+    remote_result = run_git_command([
+        "branch", "-r",
+        "--format=%(refname:short)|%(objectname:short)|%(subject)|%(committerdate:relative)",
+    ])
+    remote_branches = []
+    if remote_result["success"]:
+        for line in remote_result["output"].split("\n"):
+            if line.strip():
+                parts = line.split("|", 3)
+                if len(parts) >= 1:
+                    r_name = parts[0].strip()
+                    # 过滤掉 HEAD 指针（如 origin/HEAD -> origin/main）
+                    if "HEAD" in r_name:
+                        continue
+                    # 计算对应的本地分支名（去掉 remote 前缀，如 origin/feature -> feature）
+                    local_name = r_name.split("/", 1)[1] if "/" in r_name else r_name
+                    remote_branches.append({
+                        "name": r_name,
+                        "local_name": local_name,
+                        "hash": parts[1] if len(parts) > 1 else "",
+                        "message": parts[2] if len(parts) > 2 else "",
+                        "date": parts[3] if len(parts) > 3 else "",
+                        "has_local": local_name in local_branch_names,
+                    })
+
     return {
         "main_branch": main_branch,
         "current_branch": current_branch,
         "main_commits": main_commits,
         "branches": branch_list,
+        "remote_branches": remote_branches,
     }
 
 

@@ -3,6 +3,120 @@ import * as api from '../../api'
 import type { RemoteInfo } from '../../api'
 import { useToast } from '../../hooks/useToast'
 
+/**
+ * 分支同步状态总览组件
+ * NOTE: 多人协作时一眼看出哪些分支需要推送或拉取
+ */
+function SyncStatusOverview() {
+  const [syncData, setSyncData] = useState<{
+    branches: { name: string; ahead: number; behind: number; remote_branch: string }[]
+  } | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const loadSyncStatus = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await api.getSyncStatus()
+      setSyncData(data)
+    } catch {
+      // 静默失败，可能没配置远程
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSyncStatus()
+  }, [loadSyncStatus])
+
+  if (!syncData || syncData.branches.length === 0) return null
+
+  const needsPush = syncData.branches.filter(b => b.ahead > 0)
+  const needsPull = syncData.branches.filter(b => b.behind > 0)
+  const synced = syncData.branches.filter(b => b.ahead === 0 && b.behind === 0)
+
+  return (
+    <div className="form-card" style={{ marginBottom: 20, border: '1px solid var(--border-muted)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2">
+          <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" />
+          <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
+        </svg>
+        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text)' }}>📊 分支同步状态总览</span>
+        <button className="btn btn-sm btn-ghost" onClick={loadSyncStatus} disabled={loading} style={{ marginLeft: 'auto', padding: '2px 6px' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          {loading ? '刷新中...' : '刷新'}
+        </button>
+      </div>
+
+      {/* 摘要 */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        {needsPush.length > 0 && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 12,
+            fontSize: '0.8rem', fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: 'var(--color-primary)',
+          }}>
+            ⬆ {needsPush.length} 个分支需要推送
+          </span>
+        )}
+        {needsPull.length > 0 && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 12,
+            fontSize: '0.8rem', fontWeight: 600, background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+          }}>
+            ⬇ {needsPull.length} 个分支需要拉取
+          </span>
+        )}
+        {synced.length > 0 && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 12,
+            fontSize: '0.8rem', fontWeight: 600, background: 'rgba(16,185,129,0.15)', color: '#10b981',
+          }}>
+            ✅ {synced.length} 个分支已同步
+          </span>
+        )}
+      </div>
+
+      {/* 分支列表 */}
+      <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+        {syncData.branches.map(b => (
+          <div key={b.name} style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px',
+            borderBottom: '1px solid var(--border-muted)', fontSize: '0.82rem',
+          }}>
+            <span style={{
+              padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+              background: 'rgba(99,102,241,0.1)', color: 'var(--color-primary)',
+              fontWeight: 600, fontSize: '0.8rem', flexShrink: 0,
+            }}>
+              {b.name}
+            </span>
+            <span style={{ flex: 1, fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+              → {b.remote_branch}
+            </span>
+            {b.ahead > 0 && (
+              <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: 'var(--color-primary)' }}>
+                ⬆ {b.ahead}
+              </span>
+            )}
+            {b.behind > 0 && (
+              <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600, background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                ⬇ {b.behind}
+              </span>
+            )}
+            {b.ahead === 0 && b.behind === 0 && (
+              <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 500 }}>✓ 已同步</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
 export default function RemotePanel() {
   const { showToast } = useToast()
   const [remotes, setRemotes] = useState<RemoteInfo[]>([])
@@ -249,6 +363,9 @@ export default function RemotePanel() {
             </div>
           )}
         </div>
+
+        {/* NOTE: 分支同步状态总览 —— 多人协作时一眼看出哪些分支需要推/拉 */}
+        <SyncStatusOverview />
 
         <div className="section-divider"><span>代码推送与同步</span></div>
 

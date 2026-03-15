@@ -136,12 +136,22 @@ export interface BranchTreeData {
     name: string
     hash: string
     message: string
+    date: string
+    author: string
     current: boolean
     ahead: number
     behind: number
     merge_base: string
     description: string
     diff_summary: string
+  }[]
+  remote_branches: {
+    name: string
+    local_name: string
+    hash: string
+    message: string
+    date: string
+    has_local: boolean
   }[]
 }
 

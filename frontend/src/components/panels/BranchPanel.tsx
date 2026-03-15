@@ -11,6 +11,7 @@ export default function BranchPanel() {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newBranchName, setNewBranchName] = useState('')
   const [newBranchSource, setNewBranchSource] = useState('')
+  const [showRemoteBranches, setShowRemoteBranches] = useState(true)
 
   const loadBranchTree = useCallback(async () => {
     try {
@@ -73,6 +74,17 @@ export default function BranchPanel() {
       loadBranchTree()
     } catch (error) {
       showToast(error instanceof Error ? error.message : '合并失败', 'error')
+    }
+  }, [showToast, loadBranchTree])
+
+  // NOTE: 检出远程分支 —— 从远程分支创建对应的本地分支并切换
+  const handleCheckoutRemote = useCallback(async (remoteName: string, localName: string) => {
+    try {
+      await api.createBranch(localName, remoteName)
+      showToast(`已从 '${remoteName}' 检出本地分支 '${localName}'`, 'success')
+      loadBranchTree()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '检出失败', 'error')
     }
   }, [showToast, loadBranchTree])
 
@@ -178,6 +190,21 @@ export default function BranchPanel() {
                         {branch.message && <span> — {branch.message}</span>}
                       </span>
                     </div>
+                    {/* NOTE: 分支元信息行 —— 多人协作时展示作者和时间 */}
+                    <div className="b-meta" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      {branch.author && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                          👤 {branch.author}
+                        </span>
+                      )}
+                      {branch.date && (
+                        <span style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
+                          🕐 {branch.date}
+                        </span>
+                      )}
+                      {branch.ahead > 0 && <span className="b-stat ahead">↑ 领先 {branch.ahead} 个提交</span>}
+                      {branch.behind > 0 && <span className="b-stat behind">↓ 落后 {branch.behind} 个提交</span>}
+                    </div>
                     {branch.description && (
                       <div className="b-description">
                         <span className="b-desc-icon">📝</span>
@@ -190,10 +217,6 @@ export default function BranchPanel() {
                         <span>{branch.diff_summary}</span>
                       </div>
                     )}
-                    <div className="b-meta">
-                      {branch.ahead > 0 && <span className="b-stat ahead">↑ 领先 {branch.ahead} 个提交</span>}
-                      {branch.behind > 0 && <span className="b-stat behind">↓ 落后 {branch.behind} 个提交</span>}
-                    </div>
                     <div className="b-actions">
                       {!branch.current && (
                         <>
@@ -230,6 +253,98 @@ export default function BranchPanel() {
           <div className="empty-state">
             <h3>暂无提交记录</h3>
             <p>该仓库还没有任何提交</p>
+          </div>
+        )}
+
+        {/* 远程分支列表 */}
+        {treeData && treeData.remote_branches && treeData.remote_branches.length > 0 && (
+          <div className="form-card" style={{ marginTop: 20, border: '1px solid var(--border-muted)' }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => setShowRemoteBranches(prev => !prev)}
+            >
+              <svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2"
+                style={{ transform: showRemoteBranches ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2">
+                <circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" />
+                <path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" />
+              </svg>
+              <span style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text)' }}>
+                远程分支
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', padding: '1px 8px',
+                borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,
+                background: 'rgba(99,102,241,0.15)', color: 'var(--color-primary)',
+              }}>
+                {treeData.remote_branches.length}
+              </span>
+              <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                执行 Fetch 获取最新远程分支
+              </span>
+            </div>
+
+            {showRemoteBranches && (
+              <div style={{ marginTop: 12 }}>
+                {treeData.remote_branches.map(rb => (
+                  <div
+                    key={rb.name}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                      borderBottom: '1px solid var(--border-muted)',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    {/* 分支名 */}
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: rb.has_local ? 'rgba(16,185,129,0.1)' : 'rgba(99,102,241,0.1)',
+                      color: rb.has_local ? 'var(--color-success)' : 'var(--color-primary)',
+                      fontWeight: 600, fontSize: '0.82rem', flexShrink: 0,
+                    }}>
+                      {rb.name}
+                    </span>
+                    {/* 短 hash */}
+                    <code style={{
+                      flexShrink: 0, fontSize: '0.78rem', color: 'var(--color-text-secondary)',
+                      background: 'var(--bg-tertiary)', padding: '1px 5px', borderRadius: 4,
+                    }}>
+                      {rb.hash}
+                    </code>
+                    {/* 提交信息 */}
+                    <span style={{ flex: 1, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {rb.message}
+                    </span>
+                    {/* 时间 */}
+                    <span style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                      {rb.date}
+                    </span>
+                    {/* 操作 */}
+                    {rb.has_local ? (
+                      <span style={{
+                        flexShrink: 0, fontSize: '0.75rem', padding: '2px 8px', borderRadius: 10,
+                        background: 'rgba(16,185,129,0.1)', color: 'var(--color-success)', fontWeight: 500,
+                      }}>
+                        ✓ 已检出
+                      </span>
+                    ) : (
+                      <button
+                        className="btn btn-sm btn-outline"
+                        style={{ flexShrink: 0 }}
+                        onClick={() => handleCheckoutRemote(rb.name, rb.local_name)}
+                      >
+                        检出
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

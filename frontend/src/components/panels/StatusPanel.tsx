@@ -3,6 +3,107 @@ import * as api from '../../api'
 import type { StatusFile } from '../../api'
 import { useToast } from '../../hooks/useToast'
 
+/**
+ * 远程同步快速提示栏
+ * NOTE: 在仓库状态面板顶部显示当前分支的同步状态，避免频繁切换页面
+ */
+function SyncQuickBar() {
+  const { showToast } = useToast()
+  const [syncInfo, setSyncInfo] = useState<{ ahead: number; behind: number; branch: string } | null>(null)
+  const [pulling, setPulling] = useState(false)
+  const [pushing, setPushing] = useState(false)
+
+  const loadSync = useCallback(async () => {
+    try {
+      const data = await api.getSyncStatus()
+      if (data.branches && data.branches.length > 0) {
+        // NOTE: 找到当前分支（通常排第一）
+        const repoInfo = await api.getRepoInfo()
+        const currentBranch = repoInfo.current_branch || ''
+        const match = data.branches.find(b => b.name === currentBranch) || data.branches[0]
+        setSyncInfo({ ahead: match.ahead, behind: match.behind, branch: match.name })
+      }
+    } catch {
+      // 静默失败
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSync()
+  }, [loadSync])
+
+  if (!syncInfo || (syncInfo.ahead === 0 && syncInfo.behind === 0)) return null
+
+  const handleQuickPull = async () => {
+    setPulling(true)
+    try {
+      await api.pullRemote()
+      showToast('拉取成功', 'success')
+      loadSync()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '拉取失败', 'error')
+    } finally {
+      setPulling(false)
+    }
+  }
+
+  const handleQuickPush = async () => {
+    setPushing(true)
+    try {
+      await api.pushToRemote('origin', syncInfo.branch)
+      showToast('推送成功', 'success')
+      loadSync()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '推送失败', 'error')
+    } finally {
+      setPushing(false)
+    }
+  }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', marginBottom: 16,
+      background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-muted)',
+    }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2">
+        <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" />
+        <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
+      </svg>
+      <span style={{ fontSize: '0.85rem', color: 'var(--color-text)' }}>
+        <code style={{ background: 'var(--bg-card)', padding: '1px 6px', borderRadius: 4, color: 'var(--color-primary)', fontSize: '0.82rem' }}>
+          {syncInfo.branch}
+        </code>
+      </span>
+      {syncInfo.behind > 0 && (
+        <>
+          <span style={{
+            padding: '2px 8px', borderRadius: 10, fontSize: '0.78rem', fontWeight: 600,
+            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+          }}>
+            ⬇ 落后 {syncInfo.behind}
+          </span>
+          <button className="btn btn-sm btn-outline" onClick={handleQuickPull} disabled={pulling} style={{ fontSize: '0.78rem', padding: '2px 8px' }}>
+            {pulling ? '拉取中...' : '快速拉取'}
+          </button>
+        </>
+      )}
+      {syncInfo.ahead > 0 && (
+        <>
+          <span style={{
+            padding: '2px 8px', borderRadius: 10, fontSize: '0.78rem', fontWeight: 600,
+            background: 'rgba(99,102,241,0.15)', color: 'var(--color-primary)',
+          }}>
+            ⬆ 领先 {syncInfo.ahead}
+          </span>
+          <button className="btn btn-sm btn-outline" onClick={handleQuickPush} disabled={pushing} style={{ fontSize: '0.78rem', padding: '2px 8px' }}>
+            {pushing ? '推送中...' : '快速推送'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface StatusPanelProps {
   onRefreshRepo: () => void
   onShowDiff: (filepath: string) => void
@@ -167,6 +268,8 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
         </div>
       </div>
       <div className="panel-body">
+        {/* NOTE: 远程同步快速提示栏 —— 多人协作时随时了解同步状态 */}
+        <SyncQuickBar />
         {/* 操作说明 */}
         {!clean && (
           <div className="help-tip">

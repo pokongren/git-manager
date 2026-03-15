@@ -139,7 +139,7 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
         setFiles(
           data.files.map(f => ({
             ...f,
-            selected: false,
+            selected: true,
             statusText: f.working || f.index || '未知',
           }))
         )
@@ -204,12 +204,14 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
   }, [showToast, loadStatus])
 
   const handleCommit = useCallback(async () => {
-    if (!commitMsg.trim()) {
-      showToast('请输入提交信息', 'error')
-      return
+    let finalMsg = commitMsg.trim()
+    if (!finalMsg) {
+      const now = new Date()
+      // 格式：数据更新：（x年z月z日，x：xx）
+      finalMsg = `数据更新：（${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日，${now.getHours()}：${now.getMinutes().toString().padStart(2, '0')}）`
     }
     try {
-      await api.commitChanges(commitMsg)
+      await api.commitChanges(finalMsg)
       showToast('提交成功', 'success')
       setCommitMsg('')
       setCommitType('')
@@ -226,15 +228,17 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
       showToast('请先勾选要暂存并提交的文件', 'error')
       return
     }
-    if (!commitMsg.trim()) {
-      showToast('请输入提交信息', 'error')
-      return
+    
+    let finalMsg = commitMsg.trim()
+    if (!finalMsg) {
+      const now = new Date()
+      finalMsg = `数据更新：（${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日，${now.getHours()}：${now.getMinutes().toString().padStart(2, '0')}）`
     }
     try {
       // 一步暂存选中文件
       await api.stageFiles(selectedFiles)
       // 一步执行提交
-      await api.commitChanges(commitMsg)
+      await api.commitChanges(finalMsg)
       showToast(`已暂存并提交 ${selectedFiles.length} 个文件`, 'success')
       setCommitMsg('')
       setCommitType('')
@@ -303,7 +307,7 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
               <line x1="12" y1="16" x2="12" y2="12" />
               <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
-            <span><b>操作说明：</b>勾选要保存的文件 → 点击"暂存选中" → 输入提交信息 → 点击"提交"。未勾选的文件不会被保存。</span>
+            <span><b>操作说明：</b>默认已全选所有变更文件，直接输入信息并按回车即可一键打包提交。</span>
           </div>
         )}
 
@@ -405,11 +409,11 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
                 </select>
                 <input
                   type="text"
-                  placeholder="输入提交信息..."
+                  placeholder="留空自动生成时间信息，按回车提交"
                   value={commitMsg}
                   onChange={e => setCommitMsg(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleStageAndCommit() }}
-                  style={{ minWidth: 200 }}
+                  style={{ minWidth: 260 }}
                 />
                 <button className="btn btn-sm btn-outline" onClick={handleCommit}>
                   直接提交 (已暂存区)

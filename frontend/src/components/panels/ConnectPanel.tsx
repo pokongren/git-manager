@@ -245,7 +245,7 @@ export default function ConnectPanel({ onRepoConnected }: ConnectPanelProps) {
                   className="btn btn-primary"
                   onClick={handleClone}
                   disabled={cloning}
-                  style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)' }}
+                  style={{ width: '100%', justifyContent: 'center', background: 'var(--color-primary)' }}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

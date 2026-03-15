@@ -510,7 +510,7 @@ export default function RemotePanel() {
         </div>
 
         {/* 一键全部上传 */}
-        <div className="form-card" style={{ marginTop: 16, border: '1px solid var(--color-primary)', background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, var(--bg-card) 100%)' }}>
+        <div className="form-card" style={{ marginTop: 16, border: '1px solid var(--border-muted)', background: 'linear-gradient(135deg, rgba(46,160,67,0.08) 0%, var(--bg-card) 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -539,7 +539,7 @@ export default function RemotePanel() {
               className="btn btn-primary"
               onClick={handlePushAll}
               disabled={pushingAll}
-              style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--color-primary), #8b5cf6)' }}
+              style={{ width: '100%', justifyContent: 'center', background: 'var(--color-primary)' }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -552,7 +552,7 @@ export default function RemotePanel() {
         </div>
 
         {/* 多选分支推送 */}
-        <div className="form-card" style={{ marginTop: 16, border: '1px solid var(--color-success)', background: 'linear-gradient(135deg, rgba(16,185,129,0.07) 0%, var(--bg-card) 100%)' }}>
+        <div className="form-card" style={{ marginTop: 16, border: '1px solid var(--border-muted)', background: 'linear-gradient(135deg, rgba(46,160,67,0.05) 0%, var(--bg-card) 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2">
               <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
@@ -590,7 +590,7 @@ export default function RemotePanel() {
           </div>
           <div className="form-actions" style={{ marginTop: 12 }}>
             <button className="btn btn-outline" onClick={() => setBranchList(prev => prev.map(b => ({ ...b, checked: true })))} style={{ flex: 1 }}>全选</button>
-            <button className="btn btn-primary" onClick={handlePushBranches} style={{ flex: 2, justifyContent: 'center', background: 'linear-gradient(135deg, var(--color-success), #0ea5e9)' }}>
+            <button className="btn btn-primary" onClick={handlePushBranches} style={{ flex: 2, justifyContent: 'center', background: 'var(--color-success)' }}>
               🌿 推送选中的分支
             </button>
           </div>

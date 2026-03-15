@@ -220,6 +220,31 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
     }
   }, [commitMsg, showToast, loadStatus, onRefreshRepo])
 
+  const handleStageAndCommit = useCallback(async () => {
+    const selectedFiles = files.filter(f => f.selected).map(f => f.path)
+    if (selectedFiles.length === 0) {
+      showToast('请先勾选要暂存并提交的文件', 'error')
+      return
+    }
+    if (!commitMsg.trim()) {
+      showToast('请输入提交信息', 'error')
+      return
+    }
+    try {
+      // 一步暂存选中文件
+      await api.stageFiles(selectedFiles)
+      // 一步执行提交
+      await api.commitChanges(commitMsg)
+      showToast(`已暂存并提交 ${selectedFiles.length} 个文件`, 'success')
+      setCommitMsg('')
+      setCommitType('')
+      loadStatus()
+      onRefreshRepo()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '暂存并提交失败', 'error')
+    }
+  }, [files, commitMsg, showToast, loadStatus, onRefreshRepo])
+
   const handleAbortMerge = useCallback(async () => {
     try {
       await api.abortMerge()
@@ -383,13 +408,17 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
                   placeholder="输入提交信息..."
                   value={commitMsg}
                   onChange={e => setCommitMsg(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCommit() }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleStageAndCommit() }}
+                  style={{ minWidth: 200 }}
                 />
-                <button className="btn btn-sm btn-primary" onClick={handleCommit}>
+                <button className="btn btn-sm btn-outline" onClick={handleCommit}>
+                  直接提交 (已暂存区)
+                </button>
+                <button className="btn btn-sm btn-primary" onClick={handleStageAndCommit} title="把勾选的文件一键暂存并提交">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  提交
+                  暂存选中并提交
                 </button>
               </div>
             </div>

@@ -88,6 +88,19 @@ export default function BranchPanel() {
     }
   }, [showToast, loadBranchTree])
 
+  // NOTE: 推送到远程仓库
+  const handlePushToRemote = useCallback(async (branchName: string) => {
+    try {
+      showToast(`开始推送分支 '${branchName}'...`, 'info')
+      await api.pushToRemote('origin', branchName)
+      showToast(`分支 '${branchName}' 推送成功`, 'success')
+      // 可选：重新加载状态以便更新 local/remote 领先落后数字
+      loadBranchTree()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '推送失败', 'error')
+    }
+  }, [showToast, loadBranchTree])
+
   return (
     <div className="panel active" id="panel-branches">
       <div className="panel-header">
@@ -158,6 +171,14 @@ export default function BranchPanel() {
                   <span className="tree-msg">{treeData.main_commits[0].message}</span>
                 </div>
                 <div className="tree-head-actions">
+                  <button className="btn btn-sm btn-outline backup-shortcut" title="推送到 origin 远程仓库" onClick={() => handlePushToRemote(treeData.main_branch)}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 4 }}>
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    推送
+                  </button>
                   {backupCount > 0 && (
                     <button className="btn btn-sm btn-outline backup-shortcut" title="查看备份还原点">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -218,6 +239,14 @@ export default function BranchPanel() {
                       </div>
                     )}
                     <div className="b-actions">
+                      <button className="btn btn-sm btn-outline" onClick={() => handlePushToRemote(branch.name)} title="推送到 origin 远程仓库">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 4 }}>
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="17 8 12 3 7 8" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        推送
+                      </button>
                       {!branch.current && (
                         <>
                           <button className="btn btn-sm btn-outline" onClick={() => handleSwitch(branch.name)}>切换</button>

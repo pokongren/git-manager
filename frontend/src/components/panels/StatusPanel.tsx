@@ -222,32 +222,26 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
     }
   }, [commitMsg, showToast, loadStatus, onRefreshRepo])
 
-  const handleStageAndCommit = useCallback(async () => {
-    const selectedFiles = files.filter(f => f.selected).map(f => f.path)
-    if (selectedFiles.length === 0) {
-      showToast('请先勾选要暂存并提交的文件', 'error')
-      return
-    }
-    
+  const handleStageAllAndCommit = useCallback(async () => {
     let finalMsg = commitMsg.trim()
     if (!finalMsg) {
       const now = new Date()
       finalMsg = `数据更新：（${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日，${now.getHours()}：${now.getMinutes().toString().padStart(2, '0')}）`
     }
     try {
-      // 一步暂存选中文件
-      await api.stageFiles(selectedFiles)
+      // 一步暂存所有文件（不传参数默认暂存所有变更）
+      await api.stageFiles()
       // 一步执行提交
       await api.commitChanges(finalMsg)
-      showToast(`已暂存并提交 ${selectedFiles.length} 个文件`, 'success')
+      showToast('已全部暂存并提交', 'success')
       setCommitMsg('')
       setCommitType('')
       loadStatus()
       onRefreshRepo()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '暂存并提交失败', 'error')
+      showToast(error instanceof Error ? error.message : '全部暂存并提交失败', 'error')
     }
-  }, [files, commitMsg, showToast, loadStatus, onRefreshRepo])
+  }, [commitMsg, showToast, loadStatus, onRefreshRepo])
 
   const handleAbortMerge = useCallback(async () => {
     try {
@@ -412,17 +406,17 @@ export default function StatusPanel({ onRefreshRepo, onShowDiff }: StatusPanelPr
                   placeholder="留空自动生成时间信息，按回车提交"
                   value={commitMsg}
                   onChange={e => setCommitMsg(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleStageAndCommit() }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleStageAllAndCommit() }}
                   style={{ minWidth: 260 }}
                 />
                 <button className="btn btn-sm btn-outline" onClick={handleCommit}>
                   直接提交 (已暂存区)
                 </button>
-                <button className="btn btn-sm btn-primary" onClick={handleStageAndCommit} title="把勾选的文件一键暂存并提交">
+                <button className="btn btn-sm btn-primary" onClick={handleStageAllAndCommit} title="一键全部暂存并提交">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  暂存选中并提交
+                  全部暂存并提交
                 </button>
               </div>
             </div>

@@ -125,6 +125,7 @@ export interface BranchInfo {
 
 export interface BranchTreeData {
   main_branch: string
+  main_branch_size?: string
   current_branch: string
   main_commits: {
     hash: string
@@ -144,6 +145,7 @@ export interface BranchTreeData {
     merge_base: string
     description: string
     diff_summary: string
+    size?: string
   }[]
   remote_branches: {
     name: string
@@ -152,6 +154,7 @@ export interface BranchTreeData {
     message: string
     date: string
     has_local: boolean
+    size?: string
   }[]
 }
 
@@ -417,3 +420,38 @@ export function getSyncStatus() {
 export function getBranches() {
   return apiRequest<{ branches: BranchInfo[]; current: string }>('/api/branches')
 }
+
+// ==================== .gitignore 文件类型管理 ====================
+
+export interface FileTypeGroup {
+  id: string
+  name: string
+  icon: string
+  description: string
+  patterns: string[]
+  is_ignored: boolean
+  file_count: number
+  total_size: string
+  total_size_bytes: number
+}
+
+export interface FileTypesData {
+  groups: FileTypeGroup[]
+  gitignore_exists: boolean
+}
+
+export function getFileTypes() {
+  return apiRequest<FileTypesData>('/api/gitignore/file-types')
+}
+
+export function updateGitignore(ignoredGroups: string[]) {
+  return apiRequest<{ success: boolean; message: string }>('/api/gitignore/update', {
+    method: 'POST',
+    body: JSON.stringify({ ignored_groups: ignoredGroups }),
+  })
+}
+
+export function getGitignoreRaw() {
+  return apiRequest<{ exists: boolean; content: string; path: string }>('/api/gitignore/raw')
+}
+

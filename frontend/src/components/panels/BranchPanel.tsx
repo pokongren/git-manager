@@ -167,6 +167,7 @@ export default function BranchPanel() {
                 <div className="tree-head-main">
                   <span className="tree-badge">{treeData.main_branch}</span>
                   {treeData.current_branch === treeData.main_branch && <span className="tree-status">● 当前</span>}
+                  {treeData.main_branch_size && <span className="tree-status" style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--color-success)' }}>📦 {treeData.main_branch_size}</span>}
                   <span className="tree-hash">{treeData.main_commits[0].short_hash}</span>
                   <span className="tree-msg">{treeData.main_commits[0].message}</span>
                 </div>
@@ -213,6 +214,11 @@ export default function BranchPanel() {
                     </div>
                     {/* NOTE: 分支元信息行 —— 多人协作时展示作者和时间 */}
                     <div className="b-meta" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      {branch.size && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                          📦 {branch.size}
+                        </span>
+                      )}
                       {branch.author && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
                           👤 {branch.author}
@@ -353,6 +359,12 @@ export default function BranchPanel() {
                     <span style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
                       {rb.date}
                     </span>
+                    {/* 大小 */}
+                    {rb.size && (
+                      <span style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                        📦 {rb.size}
+                      </span>
+                    )}
                     {/* 操作 */}
                     {rb.has_local ? (
                       <span style={{

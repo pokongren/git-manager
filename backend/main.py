@@ -329,8 +329,9 @@ def add_remote(req: RemoteRequest):
 @app.post("/api/push")
 def push_to_remote(req: PushRequest):
     """推送到远程仓库"""
-    # push 可能较慢，适当延长超时至 120 秒
-    result = run_git_command(["push", "-u", req.remote_name, req.branch_name], timeout=120)
+    # NOTE: 使用 refs/heads/ 前缀明确指定推送分支，避免与同名 tag 冲突
+    branch_ref = f"refs/heads/{req.branch_name}"
+    result = run_git_command(["push", "-u", req.remote_name, f"{branch_ref}:{branch_ref}"], timeout=120)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=f"推送失败: {result['error']}")
         
@@ -372,9 +373,10 @@ def push_all(req: PushAllRequest):
     else:
         commit_output = "没有新的变更需要提交"
 
-    # 第三步：推送
+    # 第三步：推送（使用 refs/heads/ 前缀，避免与同名 tag 冲突）
+    branch_ref = f"refs/heads/{req.branch_name}"
     push_result = run_git_command(
-        ["push", "-u", req.remote_name, req.branch_name],
+        ["push", "-u", req.remote_name, f"{branch_ref}:{branch_ref}"],
         timeout=120
     )
     if not push_result["success"]:
@@ -414,8 +416,10 @@ def push_branches(req: PushBranchesRequest):
         branch = branch.strip()
         if not branch:
             continue
+        # NOTE: 使用 refs/heads/ 前缀，避免与同名 tag 冲突
+        branch_ref = f"refs/heads/{branch}"
         result = run_git_command(
-            ["push", "-u", req.remote_name, f"{branch}:{branch}"],
+            ["push", "-u", req.remote_name, f"{branch_ref}:{branch_ref}"],
             timeout=120,
         )
         if result["success"]:
@@ -587,25 +591,62 @@ def list_branches():
     return {"branches": branches, "current": current_branch}
 
 
+def get_branch_size_str(branch_name: str) -> str:
+    """获取分支工作树的总大小（格式化）"""
+    result = run_git_command(["ls-tree", "-r", "-l", branch_name])
+    if not result["success"]:
+        return "未知"
+    
+    total_bytes = 0
+    for line in result["output"].split("\n"):
+        parts = line.split()
+        # 格式通常是: 100644 blob hash size filepath
+        # 若包含 size 则是数字，如果是子模块等可能是 '-'
+        if len(parts) >= 4 and parts[3].isdigit():
+            total_bytes += int(parts[3])
+            
+    if total_bytes < 1024:
+        return f"{total_bytes} B"
+    elif total_bytes < 1024 * 1024:
+        return f"{total_bytes / 1024:.1f} KB"
+    else:
+        return f"{total_bytes / (1024 * 1024):.1f} MB"
+
+
 @app.get("/api/branch-tree")
 def get_branch_tree():
     """
     获取分支树结构化数据
     返回主干提交历史和各分支的分叉关系，用于前端绘制可视化分支树
     """
-    # NOTE: 获取当前分支
+    # NOTE: 获取当前分支（detached HEAD 时为空字符串）
     current_result = run_git_command(["branch", "--show-current"])
     current_branch = current_result["output"] if current_result["success"] else ""
 
     # NOTE: 识别主干分支名称（优先 master，其次 main）
-    main_branch = "master"
+    main_branch = ""
     check_master = run_git_command(["rev-parse", "--verify", "master"])
-    if not check_master["success"]:
+    if check_master["success"]:
+        main_branch = "master"
+    else:
         check_main = run_git_command(["rev-parse", "--verify", "main"])
         if check_main["success"]:
             main_branch = "main"
+        elif current_branch:
+            main_branch = current_branch
         else:
-            main_branch = current_branch or "master"
+            # NOTE: detached HEAD 且无 master/main 时，尝试获取第一个本地分支作为主干
+            first_branch_result = run_git_command(["branch", "--format=%(refname:short)"])
+            if first_branch_result["success"]:
+                for fb_line in first_branch_result["output"].split("\n"):
+                    fb_name = fb_line.strip()
+                    # 过滤 detached HEAD 的描述行（以括号开头）
+                    if fb_name and not fb_name.startswith("("):
+                        main_branch = fb_name
+                        break
+            # 如果仍然没找到，使用 HEAD 作为引用
+            if not main_branch:
+                main_branch = "HEAD"
 
     # NOTE: 获取主干最近的提交记录
     main_log = run_git_command([
@@ -625,6 +666,9 @@ def get_branch_tree():
                         "date": parts[3] if len(parts) > 3 else "",
                     })
 
+    # NOTE: 获取主干的大小
+    main_branch_size = get_branch_size_str(main_branch)
+
     # NOTE: 获取所有本地分支
     # HACK: subject 放在最后，因为它可能包含 | 字符，用 split 的 maxsplit 兜底
     branch_result = run_git_command([
@@ -637,6 +681,9 @@ def get_branch_tree():
                 parts = line.split("|", 4)
                 if len(parts) >= 1:
                     b_name = parts[0].strip()
+                    # NOTE: 过滤无效条目：detached HEAD 描述行、heads/ 前缀的异常引用
+                    if b_name.startswith("(") or b_name.startswith("heads/"):
+                        continue
                     if b_name == main_branch:
                         continue
                     b_info = {
@@ -651,6 +698,7 @@ def get_branch_tree():
                         "merge_base": "",
                         "description": "",
                         "diff_summary": "",
+                        "size": get_branch_size_str(b_name),
                     }
                     # NOTE: 计算分支相对主干的领先/落后提交数和分叉点
                     ab_result = run_git_command([
@@ -713,10 +761,12 @@ def get_branch_tree():
                         "message": parts[2] if len(parts) > 2 else "",
                         "date": parts[3] if len(parts) > 3 else "",
                         "has_local": local_name in local_branch_names,
+                        "size": get_branch_size_str(r_name),
                     })
 
     return {
         "main_branch": main_branch,
+        "main_branch_size": main_branch_size,
         "current_branch": current_branch,
         "main_commits": main_commits,
         "branches": branch_list,
@@ -1441,7 +1491,286 @@ def get_blame_summary():
     return {"authors": summary}
 
 
-# ==================== 静态文件服务 ====================
+# ==================== .gitignore 文件类型管理 ====================
+
+# NOTE: 预定义的文件类型分组，每组包含名称、图标、规则列表和描述
+FILE_TYPE_GROUPS = [
+    {
+        "id": "database",
+        "name": "数据库文件",
+        "icon": "📦",
+        "description": "SQLite、Access 等数据库文件，通常体积较大",
+        "patterns": ["*.db", "*.sqlite", "*.sqlite3", "*.mdb", "*.accdb"],
+    },
+    {
+        "id": "logs",
+        "name": "日志文件",
+        "icon": "📋",
+        "description": "程序运行日志，一般无需版本控制",
+        "patterns": ["*.log", "logs/"],
+    },
+    {
+        "id": "build",
+        "name": "编译/打包产物",
+        "icon": "🗜",
+        "description": "可通过源码重新生成的构建产物",
+        "patterns": ["dist/", "build/", "*.pyc", "__pycache__/", "*.pyo", "*.class", "*.o", "*.obj"],
+    },
+    {
+        "id": "data",
+        "name": "大数据文件",
+        "icon": "📊",
+        "description": "CSV、Excel 等数据文件，体积可能很大",
+        "patterns": ["*.csv", "*.xlsx", "*.xls", "*.parquet"],
+    },
+    {
+        "id": "media",
+        "name": "媒体文件",
+        "icon": "🖼",
+        "description": "视频、大图片、设计稿等二进制媒体",
+        "patterns": ["*.mp4", "*.avi", "*.mov", "*.mkv", "*.psd", "*.ai"],
+    },
+    {
+        "id": "ide",
+        "name": "IDE/编辑器配置",
+        "icon": "⚙",
+        "description": "个人 IDE 配置文件，不应提交到团队仓库",
+        "patterns": [".idea/", ".vscode/", "*.swp", "*.swo", "*~", ".project", ".classpath"],
+    },
+    {
+        "id": "env",
+        "name": "环境与依赖",
+        "icon": "🔧",
+        "description": "虚拟环境、依赖包目录、环境变量文件",
+        "patterns": [".env", "node_modules/", ".venv/", "venv/", "*.egg-info/"],
+    },
+    {
+        "id": "os",
+        "name": "系统文件",
+        "icon": "💻",
+        "description": "操作系统生成的隐藏文件",
+        "patterns": [".DS_Store", "Thumbs.db", "desktop.ini", "*.tmp"],
+    },
+]
+
+# NOTE: Git UI 工具管理的规则块标记
+GITIGNORE_MANAGED_START = "# >>> [Git UI managed] - 请勿手动修改此区域"
+GITIGNORE_MANAGED_END = "# <<< [Git UI managed]"
+
+
+class GitignoreUpdateRequest(BaseModel):
+    """gitignore 更新请求"""
+    ignored_groups: list[str] = []  # 要忽略的分组 ID 列表
+
+
+def _read_gitignore() -> str:
+    """读取仓库根目录的 .gitignore 文件"""
+    if not CURRENT_REPO_PATH:
+        return ""
+    gitignore_path = os.path.join(CURRENT_REPO_PATH, ".gitignore")
+    if not os.path.isfile(gitignore_path):
+        return ""
+    try:
+        with open(gitignore_path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def _write_gitignore(content: str) -> None:
+    """写入仓库根目录的 .gitignore 文件"""
+    if not CURRENT_REPO_PATH:
+        raise HTTPException(status_code=400, detail="未设置仓库路径")
+    gitignore_path = os.path.join(CURRENT_REPO_PATH, ".gitignore")
+    with open(gitignore_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _get_managed_patterns(content: str) -> set[str]:
+    """从 .gitignore 内容中解析出工具管理区域的规则"""
+    patterns: set[str] = set()
+    in_managed = False
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped == GITIGNORE_MANAGED_START:
+            in_managed = True
+            continue
+        if stripped == GITIGNORE_MANAGED_END:
+            in_managed = False
+            continue
+        if in_managed and stripped and not stripped.startswith("#"):
+            patterns.add(stripped)
+    return patterns
+
+
+def _get_all_patterns(content: str) -> set[str]:
+    """获取 .gitignore 中所有有效规则（包括用户自定义和工具管理的）"""
+    patterns: set[str] = set()
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            patterns.add(stripped)
+    return patterns
+
+
+@app.get("/api/gitignore/file-types")
+def get_file_types():
+    """
+    获取文件类型管理数据
+    NOTE: 扫描仓库中实际存在的文件类型，结合 .gitignore 状态返回各分组信息
+    """
+    if not CURRENT_REPO_PATH:
+        raise HTTPException(status_code=400, detail="未设置仓库路径")
+
+    gitignore_content = _read_gitignore()
+    all_patterns = _get_all_patterns(gitignore_content)
+
+    # NOTE: 扫描仓库文件统计各分组匹配的文件数和大小
+    import fnmatch
+    import glob as glob_mod
+
+    groups_data = []
+    for group in FILE_TYPE_GROUPS:
+        # 判断该分组是否被忽略（分组内任一规则出现在 .gitignore 中即视为已忽略）
+        matched_patterns = [p for p in group["patterns"] if p in all_patterns]
+        is_ignored = len(matched_patterns) > 0
+
+        # 统计仓库中匹配该分组模式的文件数和总大小
+        file_count = 0
+        total_size = 0
+        for pattern in group["patterns"]:
+            if pattern.endswith("/"):
+                # 目录模式：检查目录是否存在
+                dir_path = os.path.join(CURRENT_REPO_PATH, pattern.rstrip("/"))
+                if os.path.isdir(dir_path):
+                    for root, dirs, files in os.walk(dir_path):
+                        for f in files:
+                            fp = os.path.join(root, f)
+                            try:
+                                total_size += os.path.getsize(fp)
+                                file_count += 1
+                            except OSError:
+                                pass
+            else:
+                # 文件模式：遍历根目录匹配
+                for root, dirs, files in os.walk(CURRENT_REPO_PATH):
+                    # 跳过 .git 目录
+                    if ".git" in root.split(os.sep):
+                        continue
+                    for f in files:
+                        if fnmatch.fnmatch(f, pattern):
+                            fp = os.path.join(root, f)
+                            try:
+                                total_size += os.path.getsize(fp)
+                                file_count += 1
+                            except OSError:
+                                pass
+
+        # 格式化大小
+        if total_size < 1024:
+            size_str = f"{total_size} B"
+        elif total_size < 1024 * 1024:
+            size_str = f"{total_size / 1024:.1f} KB"
+        else:
+            size_str = f"{total_size / (1024 * 1024):.1f} MB"
+
+        groups_data.append({
+            "id": group["id"],
+            "name": group["name"],
+            "icon": group["icon"],
+            "description": group["description"],
+            "patterns": group["patterns"],
+            "is_ignored": is_ignored,
+            "file_count": file_count,
+            "total_size": size_str,
+            "total_size_bytes": total_size,
+        })
+
+    return {
+        "groups": groups_data,
+        "gitignore_exists": os.path.isfile(os.path.join(CURRENT_REPO_PATH, ".gitignore")),
+    }
+
+
+@app.post("/api/gitignore/update")
+def update_gitignore(req: GitignoreUpdateRequest):
+    """
+    更新 .gitignore 中的文件类型规则
+    NOTE: 使用管理区域标记，保留用户自定义规则不被覆盖
+    """
+    if not CURRENT_REPO_PATH:
+        raise HTTPException(status_code=400, detail="未设置仓库路径")
+
+    gitignore_content = _read_gitignore()
+
+    # NOTE: 提取用户自定义部分（管理区域之外的内容）
+    user_lines: list[str] = []
+    in_managed = False
+    for line in gitignore_content.split("\n"):
+        stripped = line.strip()
+        if stripped == GITIGNORE_MANAGED_START:
+            in_managed = True
+            continue
+        if stripped == GITIGNORE_MANAGED_END:
+            in_managed = False
+            continue
+        if not in_managed:
+            user_lines.append(line)
+
+    # NOTE: 移除用户区域末尾的多余空行
+    while user_lines and user_lines[-1].strip() == "":
+        user_lines.pop()
+
+    # NOTE: 生成新的管理区域内容
+    managed_lines: list[str] = []
+    for group_id in req.ignored_groups:
+        group = next((g for g in FILE_TYPE_GROUPS if g["id"] == group_id), None)
+        if group:
+            managed_lines.append(f"# {group['icon']} {group['name']}")
+            for pattern in group["patterns"]:
+                managed_lines.append(pattern)
+            managed_lines.append("")
+
+    # NOTE: 组合最终内容
+    final_lines = user_lines[:]
+    if managed_lines:
+        if final_lines:
+            final_lines.append("")
+        final_lines.append(GITIGNORE_MANAGED_START)
+        final_lines.extend(managed_lines)
+        final_lines.append(GITIGNORE_MANAGED_END)
+
+    final_content = "\n".join(final_lines)
+    if not final_content.endswith("\n"):
+        final_content += "\n"
+
+    _write_gitignore(final_content)
+
+    return {
+        "success": True,
+        "message": f"已更新 .gitignore（忽略了 {len(req.ignored_groups)} 个文件类型组）",
+        "ignored_groups": req.ignored_groups,
+    }
+
+
+@app.get("/api/gitignore/raw")
+def get_gitignore_raw():
+    """获取 .gitignore 原始内容"""
+    if not CURRENT_REPO_PATH:
+        raise HTTPException(status_code=400, detail="未设置仓库路径")
+
+    content = _read_gitignore()
+    gitignore_path = os.path.join(CURRENT_REPO_PATH, ".gitignore")
+    exists = os.path.isfile(gitignore_path)
+
+    return {
+        "exists": exists,
+        "content": content,
+        "path": gitignore_path if exists else "",
+    }
+
+
+
 
 from pathlib import Path
 
